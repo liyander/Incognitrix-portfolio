@@ -1,0 +1,81 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer utilities {
+    .blueprint-grid {
+        background-size: 40px 40px;
+        background-image: linear-gradient(to right, rgba(58, 73, 74, 0.15) 1px, transparent 1px),
+                          linear-gradient(to bottom, rgba(58, 73, 74, 0.15) 1px, transparent 1px);
+    }
+    .ghost-border {
+        border: 1px solid rgba(58, 73, 74, 0.2);
+    }
+    .reticle-tl { top: -2px; left: -2px; }
+    .reticle-tr { top: -2px; right: -2px; }
+    .reticle-bl { bottom: -2px; left: -2px; }
+    .reticle-br { bottom: -2px; right: -2px; }
+
+    .alive-shadow {
+        box-shadow: 0 0 15px rgba(16, 185, 129, 0.2);
+        animation: pulse-shadow 3s infinite alternate;
+    }
+      
+    @keyframes pulse-shadow {
+        0% {
+            box-shadow: 0 0 10px rgba(16, 185, 129, 0.1);
+        }
+        100% {
+            box-shadow: 0 0 25px rgba(16, 185, 129, 0.3);
+        }
+    }
+    
+    @keyframes fade-slide-in {
+        from { opacity: 0; transform: translateY(15px); filter: blur(4px); }
+        to { opacity: 1; transform: translateY(0); filter: blur(0); }
+    }
+    
+    .animate-fade-slide {
+        animation: fade-slide-in 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    @keyframes jarvis-glow {
+        0% { text-shadow: 0 0 5px rgba(0,245,255,0.2), 0 0 10px rgba(0,245,255,0.2); }
+        50% { text-shadow: 0 0 10px rgba(0,245,255,0.6), 0 0 20px rgba(0,245,255,0.4); }
+        100% { text-shadow: 0 0 5px rgba(0,245,255,0.2), 0 0 10px rgba(0,245,255,0.2); }
+    }
+
+    .jarvis-text {
+        animation: jarvis-glow 4s infinite;
+    }
+
+    @keyframes hologram-flicker {
+        0% { opacity: 1; }
+        2% { opacity: 0.8; }
+        4% { opacity: 1; }
+        19% { opacity: 1; }
+        21% { opacity: 0.4; }
+        23% { opacity: 1; }
+        80% { opacity: 1; }
+        83% { opacity: 0.8; }
+        87% { opacity: 1; }
+        100% { opacity: 1; }
+    }
+
+    .hologram {
+        animation: hologram-flicker 5s infinite;
+    }
+
+    @keyframes particle-drift {
+        0% { background-position: 0 0; }
+        100% { background-position: 100vw -100vh; }
+    }
+
+    .ambient-particles {
+        background-image: radial-gradient(circle, rgba(0,245,255,0.15) 1px, transparent 1px);
+        background-size: 50px 50px;
+        animation: particle-drift 30s linear infinite;
+    }
+}
+
+body { background-color: #111317!important; color: #e2e2e8!important; }

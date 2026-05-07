@@ -1,0 +1,26 @@
+{
+  "name": "lab_info",
+  "version": "1.0.0",
+  "description": "��#\u0000 \u0000I\u0000n\u0000c\u0000o\u0000g\u0000n\u0000i\u0000t\u0000r\u0000i\u0000x\u0000-\u0000p\u0000o\u0000r\u0000t\u0000f\u0000o\u0000l\u0000i\u0000o\u0000\r\u0000 \u0000",
+  "main": "index.js",
+  "scripts": {
+    "start": "concurrently \"npm run start:backend\" \"npm run start:frontend\"",
+    "start:backend": "cd backend && npm run dev",
+    "start:frontend": "cd react-website && npm run dev",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/liyander/Incognitrix-portfolio.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/liyander/Incognitrix-portfolio/issues"
+  },
+  "homepage": "https://github.com/liyander/Incognitrix-portfolio#readme",
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
