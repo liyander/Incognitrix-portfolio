@@ -8,10 +8,9 @@ const TEAMS_API_URL = '/api/teams';
 const INDIVIDUALS_API_URL = '/api/individuals';
 const CVES_API_URL = '/api/cves';
 const ACHIEVEMENTS_API_URL = '/api/achievements';
-const FUTURE_SCOPES_API_URL = '/api/future_scopes';
 
 function AdminPanel({ onBack, adminUser, onLogout }) {
-  const [activeAdminView, setActiveAdminView] = useState('dashboard'); // 'dashboard' | 'projects-list' | 'add-project' | 'teams-list' | 'add-team' | 'individuals-list' | 'add-individual' | 'cves-list' | 'add-cve' | 'achievements-list' | 'add-achievement' | 'future-scopes-list' | 'add-future-scope' | 'admin-settings'
+  const [activeAdminView, setActiveAdminView] = useState('dashboard'); // 'dashboard' | 'projects-list' | 'add-project' | 'teams-list' | 'add-team' | 'individuals-list' | 'add-individual' | 'cves-list' | 'add-cve' | 'achievements-list' | 'add-achievement' | 'admin-settings'
   const [editingId, setEditingId] = useState(null);
   
   // Data States
@@ -20,7 +19,6 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
   const [individuals, setIndividuals] = useState([]);
   const [cves, setCves] = useState([]);
   const [achievements, setAchievements] = useState([]);
-  const [futureScopes, setFutureScopes] = useState([]);
 
   // Form States
   const [formData, setFormData] = useState({
@@ -38,7 +36,6 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
 
   const [cveFormData, setCveFormData] = useState({ cve_number: '', details: '', poc: '', reference_link: [''], contributors: [] });
   const [achievementFormData, setAchievementFormData] = useState({ title: '', description: '', reference_link: [''], future_scope: '', contributors: [] });
-const [futureScopeFormData, setFutureScopeFormData] = useState({ title: '', category: 'RESEARCH', priority: 'Normal', description: '', proposed_date: '', reference_link: [''] });
 
   const handleSimpleMdeChange = useCallback((value, field, setter, formData) => {
     setter({ ...formData, [field]: value });
@@ -83,18 +80,7 @@ const [futureScopeFormData, setFutureScopeFormData] = useState({ title: '', cate
     fetchIndividuals();
     fetchCves();
     fetchAchievements();
-    fetchFutureScopes();
   }, []);
-
-  const fetchFutureScopes = async () => {
-    try {
-      const response = await fetch(FUTURE_SCOPES_API_URL);
-      const data = await response.json();
-      setFutureScopes(data);
-    } catch (err) {
-      console.error('Failed to fetch future scopes', err);
-    }
-  };
 
   const fetchCves = async () => {
     try {
@@ -184,10 +170,6 @@ const [futureScopeFormData, setFutureScopeFormData] = useState({ title: '', cate
 
   const handleAchievementChange = (e) => {
     setAchievementFormData({ ...achievementFormData, [e.target.name]: e.target.value });
-  };
-
-  const handleFutureScopeChange = (e) => {
-    setFutureScopeFormData({ ...futureScopeFormData, [e.target.name]: e.target.value });
   };
 
   // PROJECT HANDLERS
@@ -593,22 +575,6 @@ const [futureScopeFormData, setFutureScopeFormData] = useState({ title: '', cate
               <p className="font-mono text-sm text-on-surface-variant line-clamp-2">Manage Lab achievements and awards.</p>
               <div className="mt-6 flex justify-between items-center text-outline text-[10px] font-mono">
                 <span>{achievements?.length || 0} Total</span>
-                <span className="group-hover:text-primary transition-colors">ACCESS &rarr;</span>
-              </div>
-            </div>
-
-            {/* Future Scopes Card */}
-            <div 
-              onClick={() => setActiveAdminView('future-scopes-list')}
-              className="group cursor-pointer bg-surface-container-low p-6 rounded border ghost-border hover:border-primary-container hover:shadow-[0_0_20px_rgba(0,245,255,0.15)] transition-all"
-            >
-              <div className="flex items-center gap-4 mb-4 text-primary-container group-hover:drop-shadow-[0_0_8px_rgba(0,245,255,0.8)]">
-                <span className="material-symbols-outlined text-3xl">science</span>
-                <h2 className="font-headline text-2xl font-bold tracking-wider">FUTURE SCOPES</h2>
-              </div>
-              <p className="font-mono text-sm text-on-surface-variant line-clamp-2">Manage prospective research items and tech directions.</p>
-              <div className="mt-6 flex justify-between items-center text-outline text-[10px] font-mono">
-                <span>{futureScopes?.length || 0} Total</span>
                 <span className="group-hover:text-primary transition-colors">ACCESS &rarr;</span>
               </div>
             </div>
@@ -1254,120 +1220,6 @@ const [futureScopeFormData, setFutureScopeFormData] = useState({ title: '', cate
           </form>
         </div>
       )}
-
-        {/* FUTURE SCOPES LIST VIEW */}
-        {activeAdminView === 'future-scopes-list' && (
-          <div className="flex flex-col gap-6">
-            <div className="flex justify-between items-center bg-surface-container-low p-6 rounded border ghost-border relative overflow-hidden">
-              <div>
-                <h2 className="font-headline text-2xl font-bold tracking-wider text-primary-container">FUTURE SCOPES LOG</h2>
-                <p className="font-mono text-sm text-on-surface-variant">Prospective research items and next steps.</p>
-              </div>
-              <button 
-                onClick={() => { setEditingId(null); setFutureScopeFormData({ title: '', category: 'RESEARCH', priority: 'Normal', description: '', proposed_date: '', reference_link: [''] }); setActiveAdminView('add-future-scope'); }}
-                className="bg-primary/20 hover:bg-primary/30 text-primary px-6 py-3 font-bold font-mono text-sm border border-primary/50 shadow-[0_0_10px_rgba(0,245,255,0.1)] transition-all rounded hover:shadow-[0_0_20px_rgba(0,245,255,0.3)] z-10"
-              >
-                + RECORD SCOPE
-              </button>
-              <div className="absolute -right-10 -bottom-10 text-9xl text-outline/5 material-symbols-outlined select-none pointer-events-none">science</div>
-            </div>
-            
-            <div className="grid grid-cols-1 gap-4">
-              {futureScopes.map(fs => (
-                <div key={fs.id} className="bg-surface-container-low border border-outline/20 p-4 shrink-0 rounded flex justify-between">
-                  <div>
-                    <h3 className="font-bold text-lg font-headline hover:text-primary">{fs.title}</h3>
-                    <div className="font-mono text-sm text-on-surface-variant line-clamp-1">{fs.category} | {fs.priority}</div>
-                  </div>
-                  <div className="flex gap-2 items-start shrink-0">
-                    <button onClick={() => handleEditFutureScope(fs)} className="px-3 py-1 font-mono text-sm text-primary hover:bg-primary hover:text-on-primary-fixed border border-primary transition-all rounded">EDIT</button>
-                    <button onClick={() => handleDeleteFutureScope(fs.id)} className="px-3 py-1 font-mono text-sm text-error hover:bg-error hover:text-on-error border border-error transition-all rounded">DELETE</button>
-                  </div>
-                </div>
-              ))}
-              {futureScopes.length === 0 && <div className="text-center font-mono text-outline 
-py-12 border border-outline/20 border-dashed rounded">NO FUTURE SCOPES FOUND IN DIRECTORY</div>}
-            </div>
-          </div>
-        )}
-
-        {/* ADD/EDIT FUTURE SCOPE */}
-        {activeAdminView === 'add-future-scope' && (
-          <div className="max-w-4xl mx-auto w-full bg-surface-container-low p-6 md:p-8 rounded border ghost-border relative overflow-hidden">
-            <div className="absolute top-4 right-4 text-6xl text-outline/5 material-symbols-outlined pointer-events-none select-none">edit_document</div>
-            <h2 className="font-headline text-2xl font-bold tracking-wider text-primary-container mb-6 border-b border-outline/20 pb-4">
-              {editingId ? 'UPDATE FUTURE SCOPE' : 'INITIALIZE FUTURE SCOPE'}
-            </h2>
-            <form onSubmit={handleFutureScopeSubmit} className="flex flex-col gap-5 text-sm font-mono text-on-surface">
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                <label className="flex flex-col">
-                  <div className="text-outline font-bold mb-1 ml-1 text-xs">Title <span className="text-error">*</span></div>
-                  <input name="title" required value={futureScopeFormData.title} onChange={(e) => setFutureScopeFormData({ ...futureScopeFormData, title: e.target.value })} className="w-full bg-background border border-outline/30 focus:border-primary focus:ring-1 focus:ring-primary/50 transition-all text-on-surface rounded p-3" placeholder="e.g. Quantum Entropy Routing" />
-                </label>
-
-                <label className="flex flex-col">
-                  <div className="text-outline font-bold mb-1 ml-1 text-xs">Proposed Date</div>
-                  <input type="date" name="proposed_date" value={futureScopeFormData.proposed_date} onChange={(e) => setFutureScopeFormData({ ...futureScopeFormData, proposed_date: e.target.value })} className="w-full bg-background border border-outline/30 focus:border-primary focus:ring-1 focus:ring-primary/50 transition-all text-on-surface rounded p-3" />
-                </label>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                <label className="flex flex-col">
-                  <div className="text-outline font-bold mb-1 ml-1 text-xs">Category <span className="text-error">*</span></div>
-                  <select name="category" required value={futureScopeFormData.category} onChange={(e) => setFutureScopeFormData({ ...futureScopeFormData, category: e.target.value })} className="w-full bg-background border border-outline/30 focus:border-primary focus:ring-1 focus:ring-primary/50 transition-all text-on-surface rounded p-3">
-                    <option value="RESEARCH">RESEARCH</option>
-                    <option value="DEVELOPMENT">DEVELOPMENT</option>
-                    <option value="UPGRADE">UPGRADE</option>
-                    <option value="INTEGRATION">INTEGRATION</option>
-                  </select>
-                </label>
-
-                <label className="flex flex-col">
-                  <div className="text-outline font-bold mb-1 ml-1 text-xs">Priority <span className="text-error">*</span></div>
-                  <select name="priority" required value={futureScopeFormData.priority} onChange={(e) => setFutureScopeFormData({ ...futureScopeFormData, priority: e.target.value })} className="w-full bg-background border border-outline/30 focus:border-primary focus:ring-1 focus:ring-primary/50 transition-all text-on-surface rounded p-3">
-                    <option value="Normal">Normal</option>
-                    <option value="High">High</option>
-                    <option value="Medium">Medium</option>
-                    <option value="Low">Low</option>
-                  </select>
-                </label>
-              </div>
-              
-              <label className="flex flex-col w-full text-black">
-                  <div className="text-outline font-bold mb-1 ml-1 text-xs">Description / Markdown Support <span className="text-error">*</span></div>
-                  <SimpleMdeReact 
-                      value={futureScopeFormData.description} 
-                      onChange={(value) => handleSimpleMdeChange(value, 'description', setFutureScopeFormData, futureScopeFormData)}
-                  />
-              </label>
-
-              <div className="flex flex-col gap-2">
-                <div className="text-outline font-bold mb-1 ml-1 text-xs flex justify-between items-center">
-                  <span>Reference Links</span>
-                  <button type="button" onClick={() => addLinkItem('reference_link', setFutureScopeFormData, futureScopeFormData)} className="text-[10px] bg-surface-bright px-2 py-1 rounded hover:text-primary transition-colors">+ ADD LINK</button>
-                </div>
-                {futureScopeFormData.reference_link.map((link, idx) => (
-                  <div key={idx} className="flex items-center gap-2">
-                    <input 
-                      value={link} 
-                      onChange={(e) => handleLinkArrayChange('reference_link', idx, e.target.value, setFutureScopeFormData, futureScopeFormData)} 
-                      className="flex-1 bg-background border border-outline/30 focus:border-primary focus:ring-1 focus:ring-primary/50 transition-all text-on-surface rounded p-3" 
-                      placeholder="https://..." 
-                    />
-                    {futureScopeFormData.reference_link.length > 1 && (
-                      <button type="button" onClick={() => removeLinkItem('reference_link', idx, setFutureScopeFormData, futureScopeFormData)} className="text-error hover:text-error/80 p-2 material-symbols-outlined">delete</button>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              <button type="submit" className="mt-6 w-full h-12 bg-primary-container text-on-primary-fixed shadow-[0_0_10px_rgba(0,245,255,0.2)] font-headline font-bold text-lg rounded hover:shadow-[0_0_20px_rgba(0,245,255,0.4)] transition-all">
-                {editingId ? 'UPDATE RECORD' : 'SAVE RECORD'}
-              </button>
-            </form>
-          </div>
-        )}
 
           {/* ADMIN SETTINGS VIEW */}
           {activeAdminView === 'admin-settings' && (

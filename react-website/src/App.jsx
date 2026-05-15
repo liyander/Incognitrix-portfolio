@@ -4,9 +4,9 @@ import AdminPanel from './AdminPanel';
 import Teams from './Teams';
 import CVEs from './CVEs';
 import Achievements from './Achievements';
-import FutureScopes from './FutureScopes';
 import Individuals from './Individuals';
 import IndividualProfile from './IndividualProfile';
+import Dashboard from './Dashboard';
 
 import AdminLogin from './AdminLogin';
 
@@ -378,7 +378,16 @@ function App() {
                   return iTeam && (iTeam === pTeam || iTeam === pPriority);
                 }).concat(Array.isArray(pOps) ? pOps : []); 
                 return ops.map((op, idx) => (
-                <div key={idx} className="flex items-center gap-4 group p-2 -m-2 hover:bg-surface-bright rounded hover:cursor-pointer transition-colors">
+                <div 
+                  key={idx} 
+                  onClick={() => {
+                    if (op.id) {
+                      setSelectedIndividualId(op.id);
+                      setView('individual-profile');
+                    }
+                  }}
+                  className="flex items-center gap-4 group p-2 -m-2 hover:bg-surface-bright rounded hover:cursor-pointer transition-colors"
+                >
                   <div className="w-10 h-10 rounded bg-surface-dim border-outline-variant-highest dark:bg-surface-dim border-outline-variant-low flex items-center justify-center overflow-hidden ghost-border">
                     {op.avatar ? (
                       <img 
@@ -418,10 +427,10 @@ function App() {
           </div>
           <nav className="hidden md:flex space-x-6 items-center">
             <button 
-              onClick={() => { setView('portal'); setSelectedProject(null); }} 
-              className={`font-mono text-xs tracking-widest pb-1 transition-colors ${view === 'portal' && !selectedProject ? 'text-primary-container border-b-2 border-primary-container' : 'text-outline hover:text-primary-container'}`}
+              onClick={() => { setView('dashboard'); setSelectedProject(null); }}
+              className={`font-mono text-xs tracking-widest pb-1 transition-colors ${view === 'dashboard' ? 'text-primary-container border-b-2 border-primary-container' : 'text-outline hover:text-primary-container'}`}
             >
-              PROJECTS
+              DASHBOARD
             </button>
             <button 
               onClick={() => setView('teams')}
@@ -430,22 +439,16 @@ function App() {
               TEAMS
             </button>
             <button 
-              onClick={() => { setView('individuals'); setSelectedIndividualId(null); setSelectedProject(null); }}
-              className={`font-mono text-xs tracking-widest pb-1 transition-colors ${view === 'individuals' || view === 'individual-profile' ? 'text-primary-container border-b-2 border-primary-container' : 'text-outline hover:text-primary-container'}`}
+              onClick={() => { setView('portal'); setSelectedProject(null); }} 
+              className={`font-mono text-xs tracking-widest pb-1 transition-colors ${view === 'portal' && !selectedProject ? 'text-primary-container border-b-2 border-primary-container' : 'text-outline hover:text-primary-container'}`}
             >
-              INDIVIDUALS
+              PROJECTS
             </button>
             <button 
               onClick={() => { setView('achievements'); setSelectedProject(null); }}
               className={`font-mono text-xs tracking-widest pb-1 transition-colors ${view === 'achievements' ? 'text-primary-container border-b-2 border-primary-container' : 'text-outline hover:text-primary-container'}`}
             >
               ACHIEVEMENTS
-            </button>
-            <button 
-              onClick={() => { setView('future-scopes'); setSelectedProject(null); }}
-              className={`font-mono text-xs tracking-widest pb-1 hidden lg:block transition-colors ${view === 'future-scopes' ? 'text-primary-container border-b-2 border-primary-container' : 'text-outline hover:text-primary-container'}`}
-            >
-              FUTURE SCOPE
             </button>
             <button 
               onClick={() => { setView('cves'); setSelectedProject(null); }}
@@ -470,7 +473,7 @@ function App() {
           ) : (
             <AdminLogin onLogin={(user) => setAdminUser(user)} />
           )
-        ) : view === 'teams' ? <Teams onSelectProject={(p) => { setSelectedProject(p); setView('portal'); }} /> : view === 'individuals' ? <Individuals onSelectIndividual={(id) => { setSelectedIndividualId(id); setView('individual-profile'); }} /> : view === 'individual-profile' ? <IndividualProfile individualId={selectedIndividualId} projects={projects} onNavigateToProject={(p) => { setSelectedProject(p); setView('portal'); }} onNavigateToTeam={() => setView('teams')} onBack={() => { setView('individuals'); setSelectedIndividualId(null); }} /> : view === 'cves' ? <CVEs /> : view === 'achievements' ? <Achievements /> : view === 'future-scopes' ? <FutureScopes /> : (selectedProject ? renderProjectDetails(selectedProject) : renderProjectList())}
+        ) : view === 'dashboard' ? <Dashboard /> : view === 'teams' ? <Teams onSelectProject={(p) => { setSelectedProject(p); setView('portal'); }} onSelectIndividual={(id) => { setSelectedIndividualId(id); setView('individual-profile'); }} /> : view === 'individuals' ? <Individuals onSelectIndividual={(id) => { setSelectedIndividualId(id); setView('individual-profile'); }} /> : view === 'individual-profile' ? <IndividualProfile individualId={selectedIndividualId} projects={projects} onNavigateToProject={(p) => { setSelectedProject(p); setView('portal'); }} onNavigateToTeam={() => setView('teams')} onBack={() => { setView('teams'); setSelectedIndividualId(null); }} /> : view === 'cves' ? <CVEs /> : view === 'achievements' ? <Achievements /> : (selectedProject ? renderProjectDetails(selectedProject) : renderProjectList())}
       </main>
 
       {/* Special Alive Effects Overlay */}

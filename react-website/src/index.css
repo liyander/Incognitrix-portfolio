@@ -78,4 +78,20 @@
     }
 }
 
+html {
+    font-size: 110%; /* Base scale */
+}
+
+@media (min-width: 1024px) {
+    html {
+        font-size: 130%; /* Larger scale for medium/large screens */
+    }
+}
+
+@media (min-width: 1536px) {
+    html {
+        font-size: 150%; /* Massive scale for very large screens */
+    }
+}
+
 body { background-color: #111317!important; color: #e2e2e8!important; }

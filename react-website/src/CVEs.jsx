@@ -8,7 +8,14 @@ function CVEs({ onSelectCve }) {
   useEffect(() => {
     fetch('/api/cves')
       .then(res => res.json())
-      .then(data => setCves(data))
+      .then(data => {
+        if (Array.isArray(data)) {
+          setCves(data);
+        } else {
+          setCves([]);
+          console.error("Expected array but got:", data);
+        }
+      })
       .catch(err => console.error("Failed to fetch CVEs", err));
   }, []);
 

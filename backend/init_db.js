@@ -11,8 +11,8 @@ async function initializeDatabase() {
 
         console.log('Connected. Creating database and tables...');
         
-        await connection.query('CREATE DATABASE IF NOT EXISTS incognitrix_lab');
-        await connection.query('USE incognitrix_lab');
+        await connection.query('CREATE DATABASE IF NOT EXISTS incognitrix_db_new');
+        await connection.query('USE incognitrix_db_new');
         
         const createTableQuery = `
             CREATE TABLE IF NOT EXISTS projects (
@@ -88,7 +88,32 @@ async function initializeDatabase() {
         `;
         await connection.query(createIndividualsTableQuery);
         
-        console.log('Database and all tables (projects, teams, individuals) successfully initialized!');
+        const createAchievementsTableQuery = `
+            CREATE TABLE IF NOT EXISTS achievements (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                title VARCHAR(255),
+                description TEXT,
+                date VARCHAR(50),
+                future_scope TEXT,
+                reference_link JSON,
+                contributors JSON
+            )
+        `;
+        await connection.query(createAchievementsTableQuery);
+
+        const createCvesTableQuery = `
+            CREATE TABLE IF NOT EXISTS cves (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                cve_number VARCHAR(255),
+                details TEXT,
+                poc TEXT,
+                reference_link JSON,
+                contributors JSON
+            )
+        `;
+        await connection.query(createCvesTableQuery);
+        
+        console.log('Database and all tables (projects, teams, individuals, achievements, cves) successfully initialized!');
         
         await connection.end();
     } catch (err) {

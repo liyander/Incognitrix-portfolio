@@ -5,7 +5,7 @@ const API_TEAMS = '/api/teams';
 const API_PROJECTS = '/api/projects';
 const API_INDIVIDUALS = '/api/individuals';
 
-function Teams({ onSelectProject }) {
+function Teams({ onSelectProject, onSelectIndividual }) {
   const [teams, setTeams] = useState([]);
   const [projects, setProjects] = useState([]);
   const [individuals, setIndividuals] = useState([]);
@@ -75,10 +75,14 @@ function Teams({ onSelectProject }) {
                 <div className="text-sm text-outline font-mono">No assigned operatives.</div>
               ) : (
                 teamMembers.map(member => (
-                  <div key={member.id} className="flex justify-between items-center text-sm border-b border-outline/10 pb-2 last:border-0 last:pb-0">
-                    <span className="text-on-surface font-semibold text-xs truncate max-w-[50%]">{member.name}</span>
+                  <div 
+                    key={member.id} 
+                    onClick={() => onSelectIndividual?.(member.id)}
+                    className="flex justify-between items-center text-sm border-b border-outline/10 pb-2 last:border-0 last:pb-0 cursor-pointer hover:bg-surface-container transition-colors group p-2 -mx-2 rounded"
+                  >
+                    <span className="text-on-surface font-semibold text-xs truncate max-w-[50%] group-hover:text-primary transition-colors">{member.name}</span>
                     <div className="text-right">
-                      <div className="font-mono text-[10px] text-primary tracking-wider uppercase">{member.role || 'Operative'}</div>
+                      <div className="font-mono text-[10px] text-primary tracking-wider uppercase group-hover:text-primary-container transition-colors">{member.role || 'Operative'}</div>
                       <div className="font-mono text-[9px] text-outline uppercase">{member.department || 'N/A'}</div>
                     </div>
                   </div>

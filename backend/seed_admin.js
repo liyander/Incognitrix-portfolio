@@ -6,7 +6,7 @@ async function seedAdmin() {
         host: 'localhost',
         user: 'CTF',
         password: 'root',
-        database: 'incognitrix_lab'
+        database: 'incognitrix_db_new'
     });
 
     await connection.execute(`

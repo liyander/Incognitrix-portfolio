@@ -29,7 +29,7 @@ const pool = mysql.createPool({
     host: 'localhost',
     user: 'CTF',
     password: 'root',
-    database: 'incognitrix_lab',
+    database: 'incognitrix_db_new',
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0

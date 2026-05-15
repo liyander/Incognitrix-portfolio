@@ -8,7 +8,14 @@ function Achievements({ onSelectAchievement }) {
   useEffect(() => {
     fetch('/api/achievements')
       .then(res => res.json())
-      .then(data => setAchievements(data))
+      .then(data => {
+        if (Array.isArray(data)) {
+          setAchievements(data);
+        } else {
+          setAchievements([]);
+          console.error("Expected array but got:", data);
+        }
+      })
       .catch(err => console.error("Failed to fetch Achievements", err));
   }, []);
 

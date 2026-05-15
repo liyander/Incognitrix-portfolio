@@ -9,6 +9,10 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 7777,
     proxy: {
+      '/api/public': {
+        target: 'http://127.0.0.1:4000',
+        changeOrigin: true
+      },
       '/api': {
         target: 'http://127.0.0.1:1337',
         changeOrigin: true
