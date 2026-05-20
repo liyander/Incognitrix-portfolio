@@ -9,8 +9,11 @@ import IndividualProfile from './IndividualProfile';
 import Dashboard from './Dashboard';
 
 import AdminLogin from './AdminLogin';
+import UserLogin from './UserLogin';
 
 function App() {
+  const [normalUser, setNormalUser] = useState(null);
+
   const [selectedProject, setSelectedProject] = useState(null);
   const [selectedIndividualId, setSelectedIndividualId] = useState(null);
   const [view, setView] = useState('portal'); // 'portal', 'admin', 'teams', 'cves', 'achievements', 'future-scopes', 'individuals', 'individual-profile'
@@ -462,6 +465,14 @@ function App() {
             >
               ADMIN
             </button>
+            {normalUser && (
+              <button 
+                onClick={() => setNormalUser(null)}
+                className="font-mono text-xs font-bold px-3 py-1 rounded transition-all border border-error text-error hover:bg-error hover:text-on-error"
+              >
+                LOGOUT
+              </button>
+            )}
           </nav>
         </div>
       </header>
@@ -473,6 +484,8 @@ function App() {
           ) : (
             <AdminLogin onLogin={(user) => setAdminUser(user)} />
           )
+        ) : !normalUser ? (
+          <UserLogin onLogin={(user) => setNormalUser(user)} />
         ) : view === 'dashboard' ? <Dashboard /> : view === 'teams' ? <Teams onSelectProject={(p) => { setSelectedProject(p); setView('portal'); }} onSelectIndividual={(id) => { setSelectedIndividualId(id); setView('individual-profile'); }} /> : view === 'individuals' ? <Individuals onSelectIndividual={(id) => { setSelectedIndividualId(id); setView('individual-profile'); }} /> : view === 'individual-profile' ? <IndividualProfile individualId={selectedIndividualId} projects={projects} onNavigateToProject={(p) => { setSelectedProject(p); setView('portal'); }} onNavigateToTeam={() => setView('teams')} onBack={() => { setView('teams'); setSelectedIndividualId(null); }} /> : view === 'cves' ? <CVEs /> : view === 'achievements' ? <Achievements /> : (selectedProject ? renderProjectDetails(selectedProject) : renderProjectList())}
       </main>
 

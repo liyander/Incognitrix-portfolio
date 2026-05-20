@@ -519,3 +519,59 @@ app.get('/api/sheets-dashboard', async (req, res) => {
 app.listen(port, '0.0.0.0', () => {
     console.log(`Backend server running on http://0.0.0.0:${port}`);
 });
+const speakeasy = require("speakeasy");
+const qrcode = require("qrcode");
+
+// User Login (Non-Admin) -> returns whether 2FA is set up
+app.post("/api/user/login", async (req, res) => {
+    const { username, password } = req.body;
+    try {
+        const [rows] = await pool.query("SELECT * FROM users WHERE username = ?", [username]);
+        if (rows.length === 0) return res.status(401).json({ success: false, message: "Invalid credentials" });
+        
+        const user = rows[0];
+        const match = await bcrypt.compare(password, user.password);
+        if (!match) return res.status(401).json({ success: false, message: "Invalid credentials" });
+
+        if (!user.has_2fa_enabled) {
+            // Initiate 2FA setup
+            const secret = speakeasy.generateSecret({ name: `CTF_Lab (${username})` });
+            await pool.query("UPDATE users SET twofa_secret = ? WHERE id = ?", [secret.base32, user.id]);
+            const qrUrl = await qrcode.toDataURL(secret.otpauth_url);
+            return res.json({ success: true, requires2FA: true, isFirstTime: true, qr: qrUrl, username: user.username });
+        } else {
+            return res.json({ success: true, requires2FA: true, isFirstTime: false, username: user.username });
+        }
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ success: false, message: "Server error" });
+    }
+});
+
+// Verify 2FA OTP
+app.post("/api/user/verify-2fa", async (req, res) => {
+    const { username, token } = req.body;
+    try {
+        const [rows] = await pool.query("SELECT * FROM users WHERE username = ?", [username]);
+        if (rows.length === 0) return res.status(404).json({ success: false, message: "User not found" });
+        
+        const user = rows[0];
+        const verified = speakeasy.totp.verify({
+            secret: user.twofa_secret,
+            encoding: "base32",
+            token: token
+        });
+
+        if (verified) {
+            if (!user.has_2fa_enabled) {
+                await pool.query("UPDATE users SET has_2fa_enabled = TRUE WHERE id = ?", [user.id]);
+            }
+            return res.json({ success: true, message: "Login successful", username: user.username });
+        } else {
+            return res.status(400).json({ success: false, message: "Invalid OTP token" });
+        }
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ success: false, message: "Server error" });
+    }
+});
