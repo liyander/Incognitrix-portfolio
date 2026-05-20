@@ -15,7 +15,7 @@ function Teams({ onSelectProject, onSelectIndividual }) {
     fetch('/api/sheets-dashboard')
       .then(res => res.json())
       .then(sheetsData => {
-        const studentSheets = ['Technical Team', 'CVE Hunt Team', 'Escape Room Team', 'Cyber-AR&VR', 'Internship/Placed'];
+        const studentSheets = ['Technical Team', 'CVE Hunt Team', 'Escape Room Team', 'Cyber-AR&VR', 'Internship/Placed', 'Project'];
         const allTeams = new Set();
         const allInds = [];
 
@@ -26,7 +26,7 @@ function Teams({ onSelectProject, onSelectIndividual }) {
               if (row['TEAM NAME'] && row['TEAM NAME'].trim() !== '') {
                 currentTeam = row['TEAM NAME'].trim();
               }
-              const name = row['NAME'] || row['NAME '];
+              const name = row['NAME'] || row['NAME '] || row['STUDENT LEARNER'] || row['LEADING BY'];
               if (name) {
                 allTeams.add(currentTeam);
                 
@@ -56,8 +56,9 @@ function Teams({ onSelectProject, onSelectIndividual }) {
         const unique = [];
         const seen = new Set();
         allInds.forEach(ind => {
-           if(!seen.has(ind.name)) {
-               seen.add(ind.name);
+           const normName = ind.name.toLowerCase().replace(/[\s\.]/g, '').replace('auswath', 'asuwath');
+           if(!seen.has(normName)) {
+               seen.add(normName);
                const teamObj = mappedTeams.find(t => t.name === ind.team_name);
                ind.team_id = teamObj ? teamObj.id : null;
                ind.id = globalIdCounter++;

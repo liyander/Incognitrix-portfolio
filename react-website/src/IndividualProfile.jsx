@@ -14,7 +14,7 @@ function IndividualProfile({ individualId, projects, onNavigateToProject, onNavi
         const sheetsData = await response.json();
         
         let foundInd = null;
-        const studentSheets = ['Technical Team', 'CVE Hunt Team', 'Escape Room Team', 'Cyber-AR&VR', 'Internship/Placed'];
+        const studentSheets = ['Technical Team', 'CVE Hunt Team', 'Escape Room Team', 'Cyber-AR&VR', 'Internship/Placed', 'Project'];
 
         const allInds = [];
         studentSheets.forEach((sheetName) => {
@@ -24,7 +24,7 @@ function IndividualProfile({ individualId, projects, onNavigateToProject, onNavi
               if (row['TEAM NAME'] && row['TEAM NAME'].trim() !== '') {
                 currentTeam = row['TEAM NAME'].trim();
               }
-              const name = row['NAME'] || row['NAME '];
+              const name = row['NAME'] || row['NAME '] || row['STUDENT LEARNER'] || row['LEADING BY'];
               if (name) {
                 allInds.push({
                   name: name,
@@ -44,8 +44,9 @@ function IndividualProfile({ individualId, projects, onNavigateToProject, onNavi
         const unique = [];
         const seen = new Set();
         for (const ind of allInds) {
-           if(!seen.has(ind.name)) {
-               seen.add(ind.name);
+           const normName = ind.name.toLowerCase().replace(/[\s\.]/g, '').replace('auswath', 'asuwath');
+           if(!seen.has(normName)) {
+               seen.add(normName);
                ind.id = globalIdCounter++;
                unique.push(ind);
            }

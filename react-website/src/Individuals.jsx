@@ -14,7 +14,7 @@ function Individuals({ onSelectIndividual }) {
         const sheetsData = await response.json();
         
         const allInds = [];
-        const studentSheets = ['Technical Team', 'CVE Hunt Team', 'Escape Room Team', 'Cyber-AR&VR', 'Internship/Placed'];
+        const studentSheets = ['Technical Team', 'CVE Hunt Team', 'Escape Room Team', 'Cyber-AR&VR', 'Internship/Placed', 'Project'];
 
         studentSheets.forEach((sheetName) => {
           if (sheetsData[sheetName]) {
@@ -23,7 +23,7 @@ function Individuals({ onSelectIndividual }) {
               if (row['TEAM NAME'] && row['TEAM NAME'].trim() !== '') {
                 currentTeam = row['TEAM NAME'].trim();
               }
-              const name = row['NAME'] || row['NAME '];
+              const name = row['NAME'] || row['NAME '] || row['STUDENT LEARNER'] || row['LEADING BY'];
               if (name) {
                 allInds.push({
                   name: name,
@@ -40,8 +40,9 @@ function Individuals({ onSelectIndividual }) {
         const unique = [];
         const seen = new Set();
         allInds.forEach(ind => {
-           if(!seen.has(ind.name)) {
-               seen.add(ind.name);
+           const normName = ind.name.toLowerCase().replace(/[\s\.]/g, '').replace('auswath', 'asuwath');
+           if(!seen.has(normName)) {
+               seen.add(normName);
                ind.id = globalIdCounter++;
                unique.push(ind);
            }

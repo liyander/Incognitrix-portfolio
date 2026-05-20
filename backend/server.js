@@ -466,11 +466,32 @@ app.get('/api/sheets-dashboard', async (req, res) => {
             const rows = dataResponse.data.values;
 
             if (rows && rows.length > 1) {
-                // Find the header row (sometimes row 0 is just a title like "DETAILS")
+                // Find the header row by looking for the row with the most non-empty string cells
                 let headerIndex = 0;
-                if (rows[0].length <= 2 && rows.length > 1) headerIndex = 1;
+                let maxNonEmpty = 0;
+                for (let i = 0; i < Math.min(3, rows.length); i++) {
+                    let nonEmptyCount = rows[i].filter(c => c && String(c).trim() !== '').length;
+                    if (nonEmptyCount > maxNonEmpty) {
+                        maxNonEmpty = nonEmptyCount;
+                        headerIndex = i;
+                    }
+                }
                 
-                const headers = rows[headerIndex];
+                // For any empty header in the selected header row, fallback to the row above it
+                const headers = [...rows[headerIndex]];
+                if (headerIndex > 0) {
+                    for (let c = 0; c < headers.length; c++) {
+                        if (!headers[c] || headers[c].trim() === '') {
+                            for (let r = headerIndex - 1; r >= 0; r--) {
+                                if (rows[r] && rows[r][c] && rows[r][c].trim() !== '') {
+                                    headers[c] = rows[r][c].trim();
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                
                 const parsedSheetData = rows.slice(headerIndex + 1).map(row => {
                     const rowData = {};
                     headers.forEach((header, index) => {

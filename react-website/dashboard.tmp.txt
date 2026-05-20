@@ -41,7 +41,7 @@ function Dashboard() {
             sheetsData[sheetName].forEach(row => {
                const stName = row['NAME'] || row['NAME '] || row['STUDENT LEARNER'] || row['LEADING BY'];
                if (stName) {
-                 const normName = stName.toLowerCase().replace(/[\s\.]/g, '').replace('auswath', 'asuwath');
+                 const normName = stName.trim().toLowerCase();
                  if (!seenNames.has(normName)) {
                    seenNames.add(normName);
                    allStudents.push({
