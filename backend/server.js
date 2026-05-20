@@ -458,6 +458,34 @@ app.post('/api/admin/change-password', async (req, res) => {
     }
 });
 
+// Admin Get Attendance
+app.get('/api/admin/attendance', async (req, res) => {
+    try {
+        const [totalDaysRow] = await pool.query('SELECT DATEDIFF(CURRENT_DATE, MIN(attendance_date)) + 1 as totalEvents FROM attendance');
+        let totalEvents = totalDaysRow[0].totalEvents || 1; 
+        if (totalEvents <= 0) totalEvents = 1;
+
+        const [rows] = await pool.query(`
+            SELECT u.id, u.username, COUNT(a.id) as attended_days
+            FROM users u
+            LEFT JOIN attendance a ON u.id = a.user_id
+            GROUP BY u.id, u.username
+        `);
+        
+        const attendanceData = rows.map(r => ({
+            id: r.id,
+            username: r.username,
+            attended_days: r.attended_days,
+            percentage: Math.round((r.attended_days / totalEvents) * 100)
+        }));
+        
+        res.json(attendanceData);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error fetching attendance' });
+    }
+});
+
 const { google } = require('googleapis');
 
 app.get('/api/sheets-dashboard', async (req, res) => {
@@ -547,7 +575,7 @@ app.post("/api/user/login", async (req, res) => {
 
         if (!user.has_2fa_enabled) {
             // Initiate 2FA setup
-            const secret = speakeasy.generateSecret({ name: `CTF_Lab (${username})` });
+            const secret = speakeasy.generateSecret({ name: `Incognitrix portfolio` });
             await pool.query("UPDATE users SET twofa_secret = ? WHERE id = ?", [secret.base32, user.id]);
             const qrUrl = await qrcode.toDataURL(secret.otpauth_url);
             return res.json({ success: true, requires2FA: true, isFirstTime: true, qr: qrUrl, username: user.username });
@@ -578,7 +606,21 @@ app.post("/api/user/verify-2fa", async (req, res) => {
             if (!user.has_2fa_enabled) {
                 await pool.query("UPDATE users SET has_2fa_enabled = TRUE WHERE id = ?", [user.id]);
             }
-            return res.json({ success: true, message: "Login successful", username: user.username });
+            
+            // Mark attendance for today
+            const today = new Date().toISOString().split('T')[0];
+            try {
+                await pool.query(
+                    "INSERT INTO attendance (user_id, attendance_date) VALUES (?, ?)", 
+                    [user.id, today]
+                );
+                return res.json({ success: true, message: "Attendance marked as present for today!", username: user.username, attendanceRecorded: true });
+            } catch (attErr) {
+                if (attErr.code === 'ER_DUP_ENTRY') {
+                   return res.json({ success: true, message: "Attendance already marked for today.", username: user.username, attendanceRecorded: false, alreadyMarked: true });
+                }
+                throw attErr;
+            }
         } else {
             return res.status(400).json({ success: false, message: "Invalid OTP token" });
         }

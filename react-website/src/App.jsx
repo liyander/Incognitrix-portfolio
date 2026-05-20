@@ -460,19 +460,17 @@ function App() {
               CVES
             </button>
             <button 
+              onClick={() => { setView('attendance'); setSelectedProject(null); }}
+              className={`font-mono text-xs tracking-widest mr-4 pb-1 transition-colors ${view === 'attendance' ? 'text-primary-container border-b-2 border-primary-container' : 'text-outline hover:text-primary-container'}`}
+            >
+              ATTENDANCE
+            </button>
+            <button 
               onClick={() => setView('admin')}
               className={`font-mono text-xs font-bold px-3 py-1 rounded transition-all ${view === 'admin' ? 'bg-primary text-on-primary-fixed' : 'border border-primary text-primary hover:bg-primary hover:text-on-primary-fixed'}`}
             >
               ADMIN
             </button>
-            {normalUser && (
-              <button 
-                onClick={() => setNormalUser(null)}
-                className="font-mono text-xs font-bold px-3 py-1 rounded transition-all border border-error text-error hover:bg-error hover:text-on-error"
-              >
-                LOGOUT
-              </button>
-            )}
           </nav>
         </div>
       </header>
@@ -484,8 +482,8 @@ function App() {
           ) : (
             <AdminLogin onLogin={(user) => setAdminUser(user)} />
           )
-        ) : !normalUser ? (
-          <UserLogin onLogin={(user) => setNormalUser(user)} />
+        ) : view === 'attendance' ? (
+          <UserLogin onLogin={(user) => setView('portal')} />
         ) : view === 'dashboard' ? <Dashboard /> : view === 'teams' ? <Teams onSelectProject={(p) => { setSelectedProject(p); setView('portal'); }} onSelectIndividual={(id) => { setSelectedIndividualId(id); setView('individual-profile'); }} /> : view === 'individuals' ? <Individuals onSelectIndividual={(id) => { setSelectedIndividualId(id); setView('individual-profile'); }} /> : view === 'individual-profile' ? <IndividualProfile individualId={selectedIndividualId} projects={projects} onNavigateToProject={(p) => { setSelectedProject(p); setView('portal'); }} onNavigateToTeam={() => setView('teams')} onBack={() => { setView('teams'); setSelectedIndividualId(null); }} /> : view === 'cves' ? <CVEs /> : view === 'achievements' ? <Achievements /> : (selectedProject ? renderProjectDetails(selectedProject) : renderProjectList())}
       </main>
 

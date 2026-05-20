@@ -19,6 +19,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
   const [individuals, setIndividuals] = useState([]);
   const [cves, setCves] = useState([]);
   const [achievements, setAchievements] = useState([]);
+  const [attendanceStats, setAttendanceStats] = useState([]);
 
   // Form States
   const [formData, setFormData] = useState({
@@ -80,7 +81,18 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
     fetchIndividuals();
     fetchCves();
     fetchAchievements();
+    fetchAttendance();
   }, []);
+
+  const fetchAttendance = async () => {
+    try {
+      const response = await fetch('/api/admin/attendance');
+      const data = await response.json();
+      setAttendanceStats(data);
+    } catch (err) {
+      console.error('Failed to fetch attendance', err);
+    }
+  };
 
   const fetchCves = async () => {
     try {
@@ -498,6 +510,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
 
       {/* DASHBOARD VIEW */}
       {activeAdminView === 'dashboard' && (
+        <>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-4">
           {/* Projects Card */}
           <div 
@@ -572,30 +585,72 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
               <span className="material-symbols-outlined text-3xl">emoji_events</span>
               <h2 className="font-headline text-2xl font-bold tracking-wider">AWARDS</h2>
             </div>
-              <p className="font-mono text-sm text-on-surface-variant line-clamp-2">Manage Lab achievements and awards.</p>
-              <div className="mt-6 flex justify-between items-center text-outline text-[10px] font-mono">
-                <span>{achievements?.length || 0} Total</span>
-                <span className="group-hover:text-primary transition-colors">ACCESS &rarr;</span>
-              </div>
-            </div>
-
-            {/* Admin Settings Card */}
-            <div 
-              onClick={() => setActiveAdminView('admin-settings')}
-              className="group cursor-pointer bg-surface-container-low p-6 rounded border ghost-border hover:border-primary-container hover:shadow-[0_0_20px_rgba(0,245,255,0.15)] transition-all"
-            >
-              <div className="flex items-center gap-4 mb-4 text-primary-container group-hover:drop-shadow-[0_0_8px_rgba(0,245,255,0.8)]">
-                <span className="material-symbols-outlined text-3xl">manage_accounts</span>
-                <h2 className="font-headline text-2xl font-bold tracking-wider">SETTINGS</h2>
-              </div>
-              <p className="font-mono text-sm text-on-surface-variant line-clamp-2">Manage settings, users, and admin access.</p>
-              <div className="mt-6 flex justify-between items-center text-outline text-[10px] font-mono">
-                <span>Users</span>
-                <span className="group-hover:text-primary transition-colors">ACCESS &rarr;</span>
-              </div>
+            <p className="font-mono text-sm text-on-surface-variant line-clamp-2">Manage Lab achievements and awards.</p>
+            <div className="mt-6 flex justify-between items-center text-outline text-[10px] font-mono">
+              <span>{achievements?.length || 0} Total</span>
+              <span className="group-hover:text-primary transition-colors">ACCESS &rarr;</span>
             </div>
           </div>
-        )}
+
+          {/* Attendance Stats Overview */}
+          <div className="md:col-span-3 bg-surface-container-low p-6 rounded border ghost-border transition-all">
+            <div className="flex items-center gap-4 mb-4 text-primary-container">
+              <span className="material-symbols-outlined text-3xl">rule_folder</span>
+              <h2 className="font-headline text-2xl font-bold tracking-wider">ATTENDANCE OVERVIEW</h2>
+            </div>
+            <p className="font-mono text-sm text-on-surface-variant mb-6">Operative check-in status mapping to tracking database.</p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left font-mono text-sm">
+                <thead>
+                  <tr className="border-b border-outline/30 text-outline">
+                    <th className="pb-3 px-4">User ID</th>
+                    <th className="pb-3 px-4">Operative</th>
+                    <th className="pb-3 px-4 text-center">Total Attendances</th>
+                    <th className="pb-3 px-4 text-right">Attendance %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {attendanceStats.length === 0 ? (
+                    <tr>
+                      <td colSpan="4" className="text-center py-6 text-outline">No attendance records found in the database.</td>
+                    </tr>
+                  ) : (
+                    attendanceStats.map(stat => (
+                      <tr key={stat.id} className="border-b border-outline/10 hover:bg-surface-container transition-colors">
+                        <td className="py-4 px-4 text-primary-container">{stat.id}</td>
+                        <td className="py-4 px-4 font-bold text-on-surface uppercase">{stat.username}</td>
+                        <td className="py-4 px-4 text-center">{stat.attended_days}</td>
+                        <td className="py-4 px-4 text-right">
+                          <span className={`px-2 py-1 rounded border ${stat.percentage > 80 ? 'bg-primary-container/10 border-primary-container/30 text-primary-container' : stat.percentage > 50 ? 'bg-outline/10 border-outline/30 text-outline' : 'bg-error/10 border-error/30 text-error'}`}>
+                            {stat.percentage}%
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Admin Settings Card */}
+          <div 
+            onClick={() => setActiveAdminView('admin-settings')}
+            className="group cursor-pointer bg-surface-container-low p-6 rounded border ghost-border hover:border-primary-container hover:shadow-[0_0_20px_rgba(0,245,255,0.15)] transition-all"
+          >
+            <div className="flex items-center gap-4 mb-4 text-primary-container group-hover:drop-shadow-[0_0_8px_rgba(0,245,255,0.8)]">
+              <span className="material-symbols-outlined text-3xl">manage_accounts</span>
+              <h2 className="font-headline text-2xl font-bold tracking-wider">SETTINGS</h2>
+            </div>
+            <p className="font-mono text-sm text-on-surface-variant line-clamp-2">Manage settings, users, and admin access.</p>
+            <div className="mt-6 flex justify-between items-center text-outline text-[10px] font-mono">
+              <span>Users</span>
+              <span className="group-hover:text-primary transition-colors">ACCESS &rarr;</span>
+            </div>
+          </div>
+        </div>
+        </>
+      )}
 
       {/* PROJECTS LIST VIEW */}
       {activeAdminView === 'projects-list' && (

@@ -8,9 +8,10 @@ function UserLogin({ onLogin }) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   
-  const [step, setStep] = useState(1); // 1: Login, 2: 2FA
+  const [step, setStep] = useState(1); // 1: Login, 2: 2FA, 3: Success
   const [isFirstTime, setIsFirstTime] = useState(false);
   const [qrCode, setQrCode] = useState("");
+  const [attendanceMessage, setAttendanceMessage] = useState("");
 
   const handleLoginSubmit = async (e) => {
     e.preventDefault();
@@ -51,7 +52,8 @@ function UserLogin({ onLogin }) {
       });
       const data = await response.json();
       if (data.success) {
-        onLogin(data.username);
+        setAttendanceMessage(data.message);
+        setStep(3); // Go to success screen
       } else {
         setError(data.message || "Invalid OTP code");
       }
@@ -75,13 +77,13 @@ function UserLogin({ onLogin }) {
 
         <div className="mb-8">
           <span className="material-symbols-outlined text-primary text-5xl mb-4 jarvis-text">
-            {step === 1 ? 'fingerprint' : 'verified_user'}
+            {step === 1 ? 'fingerprint' : step === 2 ? 'verified_user' : 'how_to_reg'}
           </span>
           <h2 className="font-headline text-2xl font-bold text-on-surface uppercase tracking-widest jarvis-text">
-            {step === 1 ? 'Operative Login' : '2FA Verification'}
+            {step === 1 ? 'Operative Login' : step === 2 ? '2FA Verification' : 'Attendance'}
           </h2>
           <p className="font-body text-xs text-primary/70 tracking-widest uppercase mt-2">
-            {step === 1 ? 'AUTHORIZATION REQUIRED' : 'ENTER AUTHENTICATOR CODE'}
+            {step === 1 ? 'AUTHORIZATION REQUIRED' : step === 2 ? 'ENTER AUTHENTICATOR CODE' : 'STATUS CONFIRMED'}
           </p>
         </div>
 
@@ -121,7 +123,7 @@ function UserLogin({ onLogin }) {
               {loading ? 'AUTHENTICATING...' : 'INITIATE LOGIN'}
             </button>
           </form>
-        ) : (
+        ) : step === 2 ? (
           <form onSubmit={handle2FASubmit} className="flex flex-col gap-6">
             {isFirstTime && (
               <div className="mb-4 flex flex-col items-center">
@@ -150,6 +152,18 @@ function UserLogin({ onLogin }) {
               {loading ? 'VERIFYING...' : 'VERIFY & ACCESS'}
             </button>
           </form>
+        ) : (
+          <div className="flex flex-col gap-6 items-center">
+            <div className="p-4 bg-primary/10 border border-primary/50 text-primary font-mono text-sm uppercase tracking-widest">
+              {attendanceMessage}
+            </div>
+            <button
+              onClick={() => onLogin(username)} // Return to portal
+              className="mt-4 bg-surface-lowest text-outline border border-outline-variant font-headline font-bold text-sm tracking-widest uppercase py-2 px-6 rounded hover:text-primary hover:border-primary transition-colors"
+            >
+              RETURN TO DIRECTIVES
+            </button>
+          </div>
         )}
       </div>
     </div>
