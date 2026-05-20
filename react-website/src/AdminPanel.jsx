@@ -1323,10 +1323,9 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                     </form>
                   </div>
 
-
-
-
-
+                </div>
+              </div>
+            )}
       </div>
     );
   }
