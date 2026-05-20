@@ -444,6 +444,57 @@ app.post('/api/admin/change-password', async (req, res) => {
     }
 });
 
+const { google } = require('googleapis');
+
+app.get('/api/sheets-dashboard', async (req, res) => {
+    try {
+        const auth = new google.auth.GoogleAuth({
+            keyFile: '../api.json',
+            scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
+        });
+
+        const sheets = google.sheets({ version: 'v4', auth });
+        const spreadsheetId = '19aB9aDWJ1G473ILMhRUBPz5IQxXxmYq96sXgKZCyyu4';
+
+        const metadataResponse = await sheets.spreadsheets.get({ spreadsheetId });
+        const sheetTitles = metadataResponse.data.sheets.map(sheet => sheet.properties.title);
+        
+        const allParsedData = {};
+
+        for (const title of sheetTitles) {
+            const dataResponse = await sheets.spreadsheets.values.get({ spreadsheetId, range: title });
+            const rows = dataResponse.data.values;
+
+            if (rows && rows.length > 1) {
+                // Find the header row (sometimes row 0 is just a title like "DETAILS")
+                let headerIndex = 0;
+                if (rows[0].length <= 2 && rows.length > 1) headerIndex = 1;
+                
+                const headers = rows[headerIndex];
+                const parsedSheetData = rows.slice(headerIndex + 1).map(row => {
+                    const rowData = {};
+                    headers.forEach((header, index) => {
+                        if (header && header.trim() !== '') {
+                            rowData[header] = row[index] !== undefined ? row[index] : null;
+                        }
+                    });
+                    return rowData;
+                });
+                
+                // Filter out empty rows
+                allParsedData[title] = parsedSheetData.filter(r => Object.values(r).some(v => v !== null && v !== ''));
+            } else {
+                allParsedData[title] = [];
+            }
+        }
+        
+        res.json(allParsedData);
+    } catch (err) {
+        console.error('API Error:', err.message);
+        res.status(500).json({ error: 'Failed to fetch from Google Sheets' });
+    }
+});
+
 app.listen(port, '0.0.0.0', () => {
     console.log(`Backend server running on http://0.0.0.0:${port}`);
 });

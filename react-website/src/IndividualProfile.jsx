@@ -10,8 +10,50 @@ function IndividualProfile({ individualId, projects, onNavigateToProject, onNavi
   useEffect(() => {
     const fetchIndividual = async () => {
       try {
-        const response = await axios.get(`/api/individuals/${individualId}`);
-        setIndividual(response.data);
+        const response = await fetch('/api/sheets-dashboard');
+        const sheetsData = await response.json();
+        
+        let foundInd = null;
+        const studentSheets = ['Technical Team', 'CVE Hunt Team', 'Escape Room Team', 'Cyber-AR&VR', 'Internship/Placed'];
+
+        const allInds = [];
+        studentSheets.forEach((sheetName) => {
+          if (sheetsData[sheetName]) {
+            let currentTeam = sheetName;
+            sheetsData[sheetName].forEach(row => {
+              if (row['TEAM NAME'] && row['TEAM NAME'].trim() !== '') {
+                currentTeam = row['TEAM NAME'].trim();
+              }
+              const name = row['NAME'] || row['NAME '];
+              if (name) {
+                allInds.push({
+                  name: name,
+                  team_name: currentTeam,
+                  role: row['WORK'] || 'Operative',
+                  department: row['DEPT - YEAR'] || 'Unknown',
+                  achievements: row['ACHIEVEMENTS'] || '',
+                  certificates: row['CERTIFICATES'] || '',
+                  research_work: row['RESEARCH WORK'] || ''
+                });
+              }
+            });
+          }
+        });
+        
+        let globalIdCounter = 1;
+        const unique = [];
+        const seen = new Set();
+        for (const ind of allInds) {
+           if(!seen.has(ind.name)) {
+               seen.add(ind.name);
+               ind.id = globalIdCounter++;
+               unique.push(ind);
+           }
+        }
+        
+        foundInd = unique.find(u => u.id === individualId);
+
+        setIndividual(foundInd);
         setLoading(false);
       } catch (error) {
         console.error('Error fetching individual profile:', error);

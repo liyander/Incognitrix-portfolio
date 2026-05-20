@@ -15,33 +15,9 @@ function Teams({ onSelectProject, onSelectIndividual }) {
     fetch('/api/sheets-dashboard')
       .then(res => res.json())
       .then(sheetsData => {
-        const studentSheets = ['Technical Team', 'CVE Hunt Team', 'Escape Room Team', 'Cyber-AR&VR', 'Internship/Placed'];
-        const allTeams = new Set();
-        const allInds = [];
-
-        studentSheets.forEach((sheetName) => {
-          if (sheetsData[sheetName]) {
-            let currentTeam = sheetName;
-            sheetsData[sheetName].forEach(row => {
-              if (row['TEAM NAME'] && row['TEAM NAME'].trim() !== '') {
-                currentTeam = row['TEAM NAME'].trim();
-              }
-              const name = row['NAME'] || row['NAME '];
-              if (name) {
-                allTeams.add(currentTeam);
-                
-                allInds.push({
-                  name: name,
-                  team_name: currentTeam,
-                  role: row['WORK'] || 'Operative',
-                  department: row['DEPT - YEAR'] || 'Unknown'
-                });
-              }
-            });
-          }
-        });
-
-        const mappedTeams = Array.from(allTeams).map((name, i) => ({
+        // Mock team structures since they are sheets now
+        const teamSheets = ['Technical Team', 'CVE Hunt Team', 'Escape Room Team', 'Cyber-AR&VR'];
+        const mappedTeams = teamSheets.map((name, i) => ({
           id: i + 1,
           name: name,
           description: `Operations and specialized focus for ${name}.`,
@@ -51,16 +27,29 @@ function Teams({ onSelectProject, onSelectIndividual }) {
 
         setTeams(mappedTeams);
 
-        // Remove duplicates and link to new sub-team IDs
-        let globalIdCounter = 1;
+        const allInds = [];
+        teamSheets.forEach((sheetName, i) => {
+          if (sheetsData[sheetName]) {
+            sheetsData[sheetName].forEach(row => {
+              if (row['NAME'] || row['NAME ']) {
+                allInds.push({
+                  id: allInds.length + 1,
+                  name: row['NAME'] || row['NAME '],
+                  team_id: i + 1,
+                  role: row['WORK'] || 'Operative',
+                  department: row['DEPT - YEAR'] || 'Unknown'
+                });
+              }
+            });
+          }
+        });
+        
+        // Remove duplicates
         const unique = [];
         const seen = new Set();
         allInds.forEach(ind => {
            if(!seen.has(ind.name)) {
                seen.add(ind.name);
-               const teamObj = mappedTeams.find(t => t.name === ind.team_name);
-               ind.team_id = teamObj ? teamObj.id : null;
-               ind.id = globalIdCounter++;
                unique.push(ind);
            }
         });
@@ -76,7 +65,7 @@ function Teams({ onSelectProject, onSelectIndividual }) {
                    id: i + 1,
                    title: row['PROJECT NAME'] || row['NAME'],
                    status: 'Active',
-                   priority: row['TEAM NAME'] || 'Technical Team'
+                   priority: row['TEAM NAME'] || 'Technical Team' // Just guessing based on standard logic
                 })
              }
            });

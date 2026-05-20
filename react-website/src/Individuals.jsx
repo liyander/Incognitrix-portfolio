@@ -10,8 +10,44 @@ function Individuals({ onSelectIndividual }) {
   useEffect(() => {
     const fetchIndividuals = async () => {
       try {
-        const response = await axios.get('/api/individuals');
-        setIndividuals(response.data);
+        const response = await fetch('/api/sheets-dashboard');
+        const sheetsData = await response.json();
+        
+        const allInds = [];
+        const studentSheets = ['Technical Team', 'CVE Hunt Team', 'Escape Room Team', 'Cyber-AR&VR', 'Internship/Placed'];
+
+        studentSheets.forEach((sheetName) => {
+          if (sheetsData[sheetName]) {
+            let currentTeam = sheetName;
+            sheetsData[sheetName].forEach(row => {
+              if (row['TEAM NAME'] && row['TEAM NAME'].trim() !== '') {
+                currentTeam = row['TEAM NAME'].trim();
+              }
+              const name = row['NAME'] || row['NAME '];
+              if (name) {
+                allInds.push({
+                  name: name,
+                  team_name: currentTeam,
+                  role: row['WORK'] || 'Operative',
+                  department: row['DEPT - YEAR'] || 'Unknown'
+                });
+              }
+            });
+          }
+        });
+        
+        let globalIdCounter = 1;
+        const unique = [];
+        const seen = new Set();
+        allInds.forEach(ind => {
+           if(!seen.has(ind.name)) {
+               seen.add(ind.name);
+               ind.id = globalIdCounter++;
+               unique.push(ind);
+           }
+        });
+
+        setIndividuals(unique);
         setLoading(false);
       } catch (error) {
         console.error('Error fetching individuals:', error);
