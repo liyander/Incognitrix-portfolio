@@ -1235,7 +1235,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                 <div className="absolute -right-10 -bottom-10 text-9xl text-outline/5 material-symbols-outlined select-none pointer-events-none">manage_accounts</div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
                 {/* Change Password Block */}
                 <div className="bg-surface-container border border-outline/20 p-6 rounded">
                   <h3 className="font-headline text-xl text-primary border-b border-outline/30 pb-4 mb-4">CHANGE PASSWORD</h3>
@@ -1293,9 +1293,36 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                     <button type="submit" className="w-full bg-secondary/20 text-secondary border border-secondary/50 py-2 font-mono text-sm hover:bg-secondary hover:text-on-secondary-fixed transition-colors">PROVISION ACCESS</button>
                   </form>
                 </div>
-              </div>
-            </div>
-          )}
+
+                  {/* Create New Operative (User) Block */}
+                  <div className="bg-surface-container border border-outline/20 p-6 rounded md:col-span-2 lg:col-span-1">
+                    <h3 className="font-headline text-xl text-emerald-400 border-b border-outline/30 pb-4 mb-4">CREATE OPERATIVE</h3>
+                    <form onSubmit={async (e) => {
+                      e.preventDefault();
+                      const newUsername = e.target.newUsername.value;
+                      const newPassword = e.target.newPassword.value;
+                      try {
+                        const res = await fetch('/api/admin/create-user', {
+                          method: 'POST', headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ newUsername, newPassword })
+                        });
+                        const data = await res.json();
+                        if (data.success) { alert('Operative profile created successfully'); e.target.reset(); }
+                        else { alert('Error: ' + data.message); }
+                      } catch(err) { console.error(err); alert('Failed to connect to server'); }
+                    }} className="space-y-4">
+                      <div>
+                        <label className="block text-xs font-mono mb-1 text-on-surface-variant">Operative Username</label>
+                        <input name="newUsername" type="text" required className="w-full bg-surface-dim border border-outline/50 p-2 text-sm font-mono text-on-surface focus:outline-none focus:border-emerald-400" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-mono mb-1 text-on-surface-variant">Assigned Password</label>
+                        <input name="newPassword" type="password" required className="w-full bg-surface-dim border border-outline/50 p-2 text-sm font-mono text-on-surface focus:outline-none focus:border-emerald-400" />
+                      </div>
+                      <button type="submit" className="w-full bg-emerald-400/20 text-emerald-400 border border-emerald-400/50 py-2 font-mono text-sm hover:bg-emerald-400 hover:text-on-surface transition-colors">AUTHORIZE OPERATIVE</button>
+                    </form>
+                  </div>
+
 
 
 

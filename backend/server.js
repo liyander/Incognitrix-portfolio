@@ -1,4 +1,4 @@
-const express = require('express');
+﻿const express = require('express');
 const mysql = require('mysql2/promise');
 const cors = require('cors');
 const multer = require('multer');
@@ -423,7 +423,21 @@ app.post('/api/admin/create', async (req, res) => {
         res.status(500).json({ error: 'Server error' });
     }
 });
+// Admin Create New User (Operative)
+app.post('/api/admin/create-user', async (req, res) => {
+    const { newUsername, newPassword } = req.body;
+    try {
+        const [existing] = await pool.query('SELECT * FROM users WHERE username = ?', [newUsername]);
+        if (existing.length > 0) return res.status(400).json({ success: false, message: 'Username taken' });
 
+        const hashed = await bcrypt.hash(newPassword, 10);
+        await pool.query('INSERT INTO users (username, password) VALUES (?, ?)', [newUsername, hashed]);
+        res.json({ success: true, message: 'User created successfully' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ success: false, message: 'Server error' });
+    }
+});
 // Admin Change Password
 app.post('/api/admin/change-password', async (req, res) => {
     const { username, currentPassword, newPassword } = req.body;
@@ -516,9 +530,7 @@ app.get('/api/sheets-dashboard', async (req, res) => {
     }
 });
 
-app.listen(port, '0.0.0.0', () => {
-    console.log(`Backend server running on http://0.0.0.0:${port}`);
-});
+
 const speakeasy = require("speakeasy");
 const qrcode = require("qrcode");
 
@@ -575,3 +587,35 @@ app.post("/api/user/verify-2fa", async (req, res) => {
         res.status(500).json({ success: false, message: "Server error" });
     }
 });
+
+
+// Diagnostic: list registered routes (temporary)
+app.get('/__routes', (req, res) => {
+    try {
+        const routes = [];
+        app._router.stack.forEach((middleware) => {
+            if (middleware.route) {
+                // routes registered directly on the app
+                const methods = Object.keys(middleware.route.methods).join(',').toUpperCase();
+                routes.push({ path: middleware.route.path, methods });
+            } else if (middleware.name === 'router' && middleware.handle && middleware.handle.stack) {
+                // router middleware
+                middleware.handle.stack.forEach((handler) => {
+                    if (handler.route) {
+                        const methods = Object.keys(handler.route.methods).join(',').toUpperCase();
+                        routes.push({ path: handler.route.path, methods });
+                    }
+                });
+            }
+        });
+        res.json(routes);
+    } catch (err) {
+        res.status(500).json({ error: 'failed to list routes', details: String(err) });
+    }
+});
+
+
+app.listen(port, '0.0.0.0', () => {
+    console.log(`Backend server running on http://0.0.0.0:${port}`);
+});
+
