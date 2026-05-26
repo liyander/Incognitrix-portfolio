@@ -512,6 +512,34 @@ app.post('/api/admin/create-user', async (req, res) => {
         res.status(500).json({ success: false, message: 'Server error' });
     }
 });
+
+// Admin Create/Reset Individual User Password
+app.post('/api/admin/update-user-password', async (req, res) => {
+    const username = (req.body.username || req.body.newUsername || '').trim();
+    const newPassword = req.body.newPassword || req.body.password || '';
+
+    if (!username || !newPassword) {
+        return res.status(400).json({ success: false, message: 'Username and password are required' });
+    }
+
+    try {
+        const hashed = await bcrypt.hash(newPassword, 10);
+        await pool.query(`
+            INSERT INTO users (username, password, twofa_secret, has_2fa_enabled)
+            VALUES (?, ?, NULL, FALSE)
+            ON DUPLICATE KEY UPDATE
+                password = VALUES(password),
+                twofa_secret = NULL,
+                has_2fa_enabled = FALSE
+        `, [username, hashed]);
+
+        res.json({ success: true, message: 'User password updated successfully. 2FA has been reset.' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ success: false, message: 'Server error' });
+    }
+});
+
 // Admin Change Password
 app.post('/api/admin/change-password', async (req, res) => {
     const { username, currentPassword, newPassword } = req.body;

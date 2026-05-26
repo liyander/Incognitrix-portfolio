@@ -345,6 +345,42 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
     }
   };
 
+  const getDefaultIndividualUsername = (name = '') => (
+    name
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, '.')
+      .replace(/^\.+|\.+$/g, '')
+  );
+
+  const handleUpdateIndividualPassword = async (ind) => {
+    const suggestedUsername = getDefaultIndividualUsername(ind.name);
+    const username = window.prompt(`Username for ${ind.name}`, suggestedUsername);
+    if (!username) return;
+
+    const newPassword = window.prompt(`New password for ${username}`);
+    if (!newPassword) return;
+
+    try {
+      const response = await fetch('/api/admin/update-user-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: username.trim(), newPassword })
+      });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || !data.success) {
+        alert(data.message || 'Failed to update individual password.');
+        return;
+      }
+
+      alert(`${username.trim()} password updated. 2FA was reset for a fresh setup.`);
+    } catch (err) {
+      console.error('Failed to update individual password', err);
+      alert('Failed to update individual password. Check console.');
+    }
+  };
+
   const handleUpdateMemberRole = async (ind, newRole) => {
     try {
       const payload = { ...ind, role: newRole };
@@ -1025,11 +1061,18 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                       EDIT
                     </button>
                     <button 
+                      onClick={() => handleUpdateIndividualPassword(ind)}
+                      className="text-tertiary hover:bg-tertiary/10 px-4 py-2 rounded transition-colors font-mono text-xs flex items-center gap-2 border border-tertiary/20"
+                    >
+                      <span className="material-symbols-outlined text-sm">lock_reset</span>
+                      PASSWORD
+                    </button>
+                    <button 
                       onClick={() => handleDeleteIndividual(ind.id)}
                       className="text-error hover:bg-error/10 px-4 py-2 rounded transition-colors font-mono text-xs flex items-center gap-2 border border-error/20"
                     >
                       <span className="material-symbols-outlined text-sm">delete</span>
-                      PURGE
+                      DELETE
                     </button>
                   </div>
                 </div>
