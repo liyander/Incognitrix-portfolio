@@ -46,10 +46,71 @@ pool.getConnection()
     .then(connection => {
         console.log('Connected to MySQL Database: incognitrix_lab');
         connection.release();
+        ensureRuntimeSchema();
     })
     .catch(err => {
         console.error('Database connection failed. Ensure MySQL is running, the user CTF exists, and the incognitrix_lab database is created.', err);
     });
+
+async function ensureRuntimeSchema() {
+    try {
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS attendance (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id VARCHAR(255) NOT NULL,
+                attendance_date DATE NOT NULL,
+                UNIQUE KEY org_emp_date (user_id, attendance_date)
+            )
+        `);
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS users (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                username VARCHAR(255) NOT NULL UNIQUE,
+                password VARCHAR(255) NOT NULL,
+                twofa_secret VARCHAR(255),
+                has_2fa_enabled BOOLEAN DEFAULT FALSE
+            )
+        `);
+
+        const [attendanceColumns] = await pool.query('SHOW COLUMNS FROM attendance');
+        const hasAttendanceDate = attendanceColumns.some(col => col.Field === 'attendance_date');
+        const hasCheckInDate = attendanceColumns.some(col => col.Field === 'check_in_date');
+        if (!hasAttendanceDate) {
+            await pool.query('ALTER TABLE attendance ADD COLUMN attendance_date DATE NULL');
+            if (hasCheckInDate) {
+                await pool.query('UPDATE attendance SET attendance_date = check_in_date WHERE attendance_date IS NULL');
+            }
+            await pool.query('UPDATE attendance SET attendance_date = CURRENT_DATE WHERE attendance_date IS NULL');
+            await pool.query('ALTER TABLE attendance MODIFY attendance_date DATE NOT NULL');
+        }
+
+        const [userColumns] = await pool.query('SHOW COLUMNS FROM users');
+        if (!userColumns.some(col => col.Field === 'twofa_secret')) {
+            await pool.query('ALTER TABLE users ADD COLUMN twofa_secret VARCHAR(255)');
+        }
+        if (!userColumns.some(col => col.Field === 'has_2fa_enabled')) {
+            await pool.query('ALTER TABLE users ADD COLUMN has_2fa_enabled BOOLEAN DEFAULT FALSE');
+        }
+    } catch (err) {
+        console.error('Runtime schema migration failed:', err);
+    }
+}
+
+async function markAttendance(userId, username) {
+    const today = new Date().toISOString().split('T')[0];
+    try {
+        await pool.query(
+            "INSERT INTO attendance (user_id, attendance_date) VALUES (?, ?)",
+            [userId, today]
+        );
+        return { success: true, message: "Attendance marked as present for today!", username, attendanceRecorded: true };
+    } catch (attErr) {
+        if (attErr.code === 'ER_DUP_ENTRY') {
+            return { success: true, message: "Attendance already marked for today.", username, attendanceRecorded: false, alreadyMarked: true };
+        }
+        throw attErr;
+    }
+}
 
 // -----------------------------------------
 // ROUTES
@@ -586,6 +647,11 @@ app.post("/api/user/login", async (req, res) => {
         const match = await bcrypt.compare(password, user.password);
         if (!match) return res.status(401).json({ success: false, message: "Invalid credentials" });
 
+        if (req.body.markAttendanceOnly === true) {
+            const attendanceResult = await markAttendance(user.id, user.username);
+            return res.json(attendanceResult);
+        }
+
         if (!user.has_2fa_enabled) {
             // Initiate 2FA setup
             const secret = speakeasy.generateSecret({ name: `Incognitrix portfolio` });
@@ -620,20 +686,7 @@ app.post("/api/user/verify-2fa", async (req, res) => {
                 await pool.query("UPDATE users SET has_2fa_enabled = TRUE WHERE id = ?", [user.id]);
             }
             
-            // Mark attendance for today
-            const today = new Date().toISOString().split('T')[0];
-            try {
-                await pool.query(
-                    "INSERT INTO attendance (user_id, attendance_date) VALUES (?, ?)", 
-                    [user.id, today]
-                );
-                return res.json({ success: true, message: "Attendance marked as present for today!", username: user.username, attendanceRecorded: true });
-            } catch (attErr) {
-                if (attErr.code === 'ER_DUP_ENTRY') {
-                   return res.json({ success: true, message: "Attendance already marked for today.", username: user.username, attendanceRecorded: false, alreadyMarked: true });
-                }
-                throw attErr;
-            }
+            return res.json(await markAttendance(user.id, user.username));
         } else {
             return res.status(400).json({ success: false, message: "Invalid OTP token" });
         }

@@ -22,10 +22,13 @@ function UserLogin({ onLogin }) {
       const response = await fetch("/api/user/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username, password, markAttendanceOnly: true }),
       });
       const data = await response.json();
-      if (data.success && data.requires2FA) {
+      if (data.success && data.attendanceRecorded !== undefined) {
+        setAttendanceMessage(data.message);
+        setStep(3);
+      } else if (data.success && data.requires2FA) {
         setIsFirstTime(data.isFirstTime);
         if (data.qr) setQrCode(data.qr);
         setStep(2);
