@@ -84,6 +84,9 @@ CREATE TABLE IF NOT EXISTS future_scopes (
     end_date DATE
 );
 
+INSERT INTO admins (`username`, `password`) VALUES ('Adm1n', '$2b$10$Vo9Vv1jAayZpc4K2ukwqjuJQZOY4mvSSOOMdsWbj2QigpYfWa9y7a')
+ON DUPLICATE KEY UPDATE `password` = VALUES(`password`);
+
 SET FOREIGN_KEY_CHECKS = 0;
 TRUNCATE TABLE future_scopes;
 TRUNCATE TABLE achievements;
@@ -186,4 +189,3 @@ INSERT INTO achievements (`id`, `title`, `description`, `date`, `future_scope`, 
 INSERT INTO achievements (`id`, `title`, `description`, `date`, `future_scope`, `reference_link`, `contributors`) VALUES (8, 'Vulnerability Research Across Major Technology Organizations', 'Liyander Rishwanth L is credited in the lab archive for vulnerability research involving Google, Microsoft, Apple, Cambridge, Oxford, and NASA systems or programs. This record is stored as a lab achievement based on internal/project-provided data.', NULL, 'Maintain evidence, disclosure timelines, acknowledgements, and remediation notes in the lab archive as supporting records become available.', '[]', '["Liyander Rishwanth L"]');
 INSERT INTO achievements (`id`, `title`, `description`, `date`, `future_scope`, `reference_link`, `contributors`) VALUES (9, 'AI Exploitation Research in Gemini and Grok', 'Liyander Rishwanth L is credited in the lab archive for AI exploitation research involving Gemini and Grok, focused on identifying abuse paths and security weaknesses in AI-assisted systems.', NULL, 'Turn findings into safe AI security labs covering prompt abuse, tool misuse, guardrail testing, and defensive validation.', '[]', '["Liyander Rishwanth L"]');
 INSERT INTO achievements (`id`, `title`, `description`, `date`, `future_scope`, `reference_link`, `contributors`) VALUES (10, 'Black Hat USA Invitation by Microsoft', 'Liyander Rishwanth L was invited by Microsoft to attend Black Hat USA as a security researcher, according to the provided lab record.', NULL, 'Use the invitation and conference exposure to strengthen responsible disclosure practice, research networking, and advanced security training content.', '[]', '["Liyander Rishwanth L"]');
-
