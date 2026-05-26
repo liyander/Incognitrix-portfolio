@@ -1,12 +1,14 @@
 const mysql = require('mysql2/promise');
-const bcrypt = require('bcryptjs');
+
+const adminUsername = 'Adm1n';
+const adminPasswordHash = '$2b$10$Vo9Vv1jAayZpc4K2ukwqjuJQZOY4mvSSOOMdsWbj2QigpYfWa9y7a';
 
 async function seedAdmin() {
     const connection = await mysql.createConnection({
-        host: 'localhost',
-        user: 'CTF',
-        password: 'root',
-        database: 'incognitrix_db_new'
+        host: process.env.DB_HOST || 'localhost',
+        user: process.env.DB_USER || 'CTF',
+        password: process.env.DB_PASSWORD || 'root',
+        database: process.env.DB_NAME || 'incognitrix_db_new'
     });
 
     await connection.execute(`
@@ -17,15 +19,12 @@ async function seedAdmin() {
         )
     `);
 
-    const [rows] = await connection.execute('SELECT * FROM admins WHERE username = ?', ['Adm1n']);
-    
-    if (rows.length === 0) {
-        const hashedPassword = await bcrypt.hash('P@ssw0rd#567', 10);
-        await connection.execute('INSERT INTO admins (username, password) VALUES (?, ?)', ['Adm1n', hashedPassword]);
-        console.log('Default admin seeded.');
-    } else {
-        console.log('Admin already exists.');
-    }
+    await connection.execute(`
+        INSERT INTO admins (username, password)
+        VALUES (?, ?)
+        ON DUPLICATE KEY UPDATE password = VALUES(password)
+    `, [adminUsername, adminPasswordHash]);
+    console.log(`Default admin initialized: ${adminUsername}`);
 
     await connection.end();
 }
