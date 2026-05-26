@@ -418,9 +418,16 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
   const handleEditAchievement = (ach) => {
     let contribs = [];
     try { contribs = typeof ach.contributors === 'string' ? JSON.parse(ach.contributors) : ach.contributors || []; } catch(e){}
+    let links = [''];
+    try {
+      links = ach.reference_link ? (typeof ach.reference_link === 'string' ? JSON.parse(ach.reference_link) : ach.reference_link) : [''];
+      if (!Array.isArray(links)) links = [links];
+    } catch(e) {
+      links = [ach.reference_link].filter(Boolean);
+    }
     setAchievementFormData({
       ...ach,
-      reference_link: ach.reference_link ? (typeof ach.reference_link === 'string' ? JSON.parse(ach.reference_link) : ach.reference_link) : [''],
+      reference_link: links,
       contributors: contribs
     });
     setEditingId(ach.id);
@@ -443,6 +450,16 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
       setActiveAdminView('achievements-list');
     } catch (err) {
       console.error('Failed to save achievement', err);
+    }
+  };
+
+  const handleDeleteAchievement = async (id) => {
+    if (!window.confirm('Delete this achievement?')) return;
+    try {
+      await fetch(`${ACHIEVEMENTS_API_URL}/${id}`, { method: 'DELETE' });
+      fetchAchievements();
+    } catch (err) {
+      console.error('Failed to delete achievement', err);
     }
   };
 

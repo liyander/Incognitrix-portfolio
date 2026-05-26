@@ -24,12 +24,18 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage: storage });
 
+const toJsonArray = (value) => {
+    if (!value) return JSON.stringify([]);
+    if (Array.isArray(value)) return JSON.stringify(value.filter(Boolean));
+    return JSON.stringify([value].filter(Boolean));
+};
+
 // Database Connection
 const pool = mysql.createPool({
-    host: 'localhost',
-    user: 'CTF',
-    password: 'root',
-    database: 'incognitrix_db_new',
+    host: process.env.DB_HOST || 'localhost',
+    user: process.env.DB_USER || 'CTF',
+    password: process.env.DB_PASSWORD || 'root',
+    database: process.env.DB_NAME || 'incognitrix_db_new',
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0
@@ -143,7 +149,10 @@ app.delete('/api/projects/:id', async (req, res) => {
 // -----------------------------------------
 app.get('/api/teams', async (req, res) => {
     try {
-        const [rows] = await pool.query('SELECT * FROM teams');
+        const [rows] = await pool.query(`
+            SELECT * FROM teams
+            ORDER BY CASE WHEN name = 'Red Team' THEN 0 ELSE 1 END, name
+        `);
         res.json(rows);
     } catch (err) {
         console.error(err);
@@ -192,6 +201,10 @@ app.get('/api/individuals', async (req, res) => {
             SELECT i.*, t.name as team_name 
             FROM individuals i 
             LEFT JOIN teams t ON i.team_id = t.id
+            ORDER BY CASE
+                WHEN LOWER(REPLACE(REPLACE(i.name, '.', ''), ' ', '')) IN ('liyandarrishwanthl', 'liyanderrishwanthl') THEN 0
+                ELSE 1
+            END, i.name
         `);
         res.json(rows);
     } catch (err) {
@@ -220,7 +233,7 @@ app.post('/api/upload', upload.single('image'), (req, res) => {
     if (!req.file) {
         return res.status(400).json({ error: 'No file uploaded' });
     }
-    const imageUrl = `http://localhost:3001/uploads/${req.file.filename}`;
+    const imageUrl = `http://localhost:${port}/uploads/${req.file.filename}`;
     res.json({ imageUrl });
 });
 
@@ -289,7 +302,7 @@ app.get('/api/cves', async (req, res) => {
 app.post('/api/cves', async (req, res) => {
     const { cve_number, details, poc, reference_link, contributors } = req.body;
     try {
-        const [result] = await pool.query('INSERT INTO cves (cve_number, details, poc, reference_link, contributors) VALUES (?, ?, ?, ?, ?)', [cve_number, details, poc, JSON.stringify(reference_link || []), JSON.stringify(contributors || [])]);
+        const [result] = await pool.query('INSERT INTO cves (cve_number, details, poc, reference_link, contributors) VALUES (?, ?, ?, ?, ?)', [cve_number, details, poc, toJsonArray(reference_link), JSON.stringify(contributors || [])]);
         res.status(201).json({ id: result.insertId });
     } catch (err) {
         res.status(500).json({ error: 'Server error' });
@@ -298,7 +311,7 @@ app.post('/api/cves', async (req, res) => {
 app.put('/api/cves/:id', async (req, res) => {
     const { cve_number, details, poc, reference_link, contributors } = req.body;
     try {
-        await pool.query('UPDATE cves SET cve_number=?, details=?, poc=?, reference_link=?, contributors=? WHERE id=?', [cve_number, details, poc, JSON.stringify(reference_link || []), JSON.stringify(contributors || []), req.params.id]);
+        await pool.query('UPDATE cves SET cve_number=?, details=?, poc=?, reference_link=?, contributors=? WHERE id=?', [cve_number, details, poc, toJsonArray(reference_link), JSON.stringify(contributors || []), req.params.id]);
         res.json({ message: 'Success' });
     } catch (err) {
         res.status(500).json({ error: 'Server error' });
@@ -324,7 +337,7 @@ app.get('/api/achievements', async (req, res) => {
 app.post('/api/achievements', async (req, res) => {
     const { title, description, date, future_scope, reference_link, contributors } = req.body;
     try {
-        const [result] = await pool.query('INSERT INTO achievements (title, description, date, future_scope, reference_link, contributors) VALUES (?, ?, ?, ?, ?, ?)', [title, description, date, future_scope, JSON.stringify(reference_link || []), JSON.stringify(contributors || [])]);
+        const [result] = await pool.query('INSERT INTO achievements (title, description, date, future_scope, reference_link, contributors) VALUES (?, ?, ?, ?, ?, ?)', [title, description, date || null, future_scope, toJsonArray(reference_link), JSON.stringify(contributors || [])]);
         res.status(201).json({ id: result.insertId });
     } catch (err) {
         res.status(500).json({ error: 'Server error' });
@@ -333,7 +346,7 @@ app.post('/api/achievements', async (req, res) => {
 app.put('/api/achievements/:id', async (req, res) => {
     const { title, description, date, future_scope, reference_link, contributors } = req.body;
     try {
-        await pool.query('UPDATE achievements SET title=?, description=?, date=?, future_scope=?, reference_link=?, contributors=? WHERE id=?', [title, description, date, future_scope, JSON.stringify(reference_link || []), JSON.stringify(contributors || []), req.params.id]);
+        await pool.query('UPDATE achievements SET title=?, description=?, date=?, future_scope=?, reference_link=?, contributors=? WHERE id=?', [title, description, date || null, future_scope, toJsonArray(reference_link), JSON.stringify(contributors || []), req.params.id]);
         res.json({ message: 'Success' });
     } catch (err) {
         res.status(500).json({ error: 'Server error' });

@@ -1,8 +1,7 @@
 /* Designed and engineered by liyander Rishwanth (CyberGhost05) */
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
 
-function IndividualProfile({ individualId, projects, onNavigateToProject, onNavigateToTeam, onBack }) {
+function IndividualProfile({ individualId, projects, onNavigateToProject, onNavigateToTeam, onBack, useDatabase }) {
   const [individual, setIndividual] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selectedDetail, setSelectedDetail] = useState(null);
@@ -10,6 +9,16 @@ function IndividualProfile({ individualId, projects, onNavigateToProject, onNavi
   useEffect(() => {
     const fetchIndividual = async () => {
       try {
+        if (useDatabase) {
+           const response = await fetch(`/api/individuals/${individualId}`);
+           if (response.ok) {
+              const data = await response.json();
+              setIndividual(data);
+              setLoading(false);
+              return;
+           }
+        }
+
         const response = await fetch('/api/sheets-dashboard');
         const sheetsData = await response.json();
         
@@ -90,7 +99,10 @@ function IndividualProfile({ individualId, projects, onNavigateToProject, onNavi
     if (typeof pOps === 'string') { try { pOps = JSON.parse(pOps); } catch(e) { pOps = []; } }
     
     // Check if the individual is listed in operatives JSON
-    const isInOps = Array.isArray(pOps) && pOps.some(op => String(op.name).toLowerCase() === String(individual.name).toLowerCase());
+    const isInOps = Array.isArray(pOps) && pOps.some(op => {
+      const opName = typeof op === 'string' ? op : op.name;
+      return String(opName).toLowerCase() === String(individual.name).toLowerCase();
+    });
     
     // Check if project team matches individual's team_name
     const pTeam = String(proj.team || "").toLowerCase();
@@ -185,7 +197,7 @@ function IndividualProfile({ individualId, projects, onNavigateToProject, onNavi
                     <p className="font-headline text-2xl font-bold text-on-surface">{achievements.length}</p>
                   </div>
                   <div>
-                    <p className="font-label text-[10px] text-on-surface-variant tracking-widest uppercase mb-1">PROJECTS</p>
+                    <p className="font-label text-[10px] text-on-surface-variant tracking-widest uppercase mb-1">PRODUCTS</p>
                       <p className="font-headline text-2xl font-bold text-primary glow-text-primary">{activeProjects.length}</p>
                   </div>
                   <div>
@@ -196,7 +208,7 @@ function IndividualProfile({ individualId, projects, onNavigateToProject, onNavi
               </div>
             </div>
 
-            {/* Current Projects Bento */}
+            {/* Current Products Bento */}
             {activeProjects.length > 0 && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                  {activeProjects.map((work, idx) => (
@@ -204,7 +216,7 @@ function IndividualProfile({ individualId, projects, onNavigateToProject, onNavi
                       <div className="bg-surface-bright px-4 py-2 flex items-center justify-between border-b border-outline-variant/10 group-hover:bg-primary/5 transition-colors">
                         <div className="flex items-center gap-2">
                           <span className="material-symbols-outlined text-[16px] text-primary">folder_open</span>
-                          <span className="font-label text-[11px] text-primary tracking-widest uppercase">PROJECT_DIR</span>
+                          <span className="font-label text-[11px] text-primary tracking-widest uppercase">PRODUCT_DIR</span>
                         </div>
                         <span className="font-label text-[10px] text-secondary tracking-widest uppercase flex items-center gap-1"><span className="w-1.5 h-1.5 bg-secondary rounded-full"></span> ONGOING</span>
                       </div>
@@ -219,6 +231,27 @@ function IndividualProfile({ individualId, projects, onNavigateToProject, onNavi
                       </div>
                     </div>
                  ))}
+              </div>
+            )}
+
+            {/* Achievements Bento */}
+            {achievements.length > 0 && (
+              <div className="bg-surface-container p-6 md:p-8 border border-outline-variant/20 mt-8">
+                <h3 className="font-headline text-xl font-bold text-on-surface mb-6 flex items-center gap-2">
+                  <span className="material-symbols-outlined text-secondary text-xl">emoji_events</span>
+                  AWARDS & RECOGNITION
+                </h3>
+                <div className="space-y-4">
+                  {achievements.map((ach, idx) => (
+                    <div key={idx} className="bg-surface-container-low border-l-2 border-secondary p-4 flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
+                      <div>
+                        <h4 className="font-headline text-md font-bold text-on-surface">{ach.title || ach.ACHIEVEMENT || 'Honorable Mention'}</h4>
+                        <p className="font-body text-xs text-on-surface-variant mt-1">{ach.description || 'Verified achievement logged in personnel file.'}</p>
+                      </div>
+                      <span className="font-label text-[10px] text-secondary tracking-widest shrink-0 bg-secondary/10 px-2 py-1">{ach.date || 'LOGGED'}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
             

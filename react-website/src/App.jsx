@@ -16,7 +16,7 @@ function App() {
 
   const [selectedProject, setSelectedProject] = useState(null);
   const [selectedIndividualId, setSelectedIndividualId] = useState(null);
-  const [view, setView] = useState('portal'); // 'portal', 'admin', 'teams', 'cves', 'achievements', 'future-scopes', 'individuals', 'individual-profile'
+  const [view, setView] = useState('portal'); // 'portal', 'admin', 'teams', 'cves', 'achievements', 'individuals', 'individual-profile', 'attendance'
   const [adminUser, setAdminUser] = useState(null);
   const [dbProjects, setDbProjects] = useState([]);
   const [individuals, setIndividuals] = useState([]);
@@ -25,71 +25,80 @@ function App() {
   const [isAutoMode, setIsAutoMode] = useState(false);
   const [autoState, setAutoState] = useState('list');
   const [autoIndex, setAutoIndex] = useState(0);
+  
+  // New Global State Toggle for Data Source
+  const [useDatabase, setUseDatabase] = useState(true);
 
-  // Fetch projects from the MySQL backend on load
+  // Fetch products from the MySQL backend on load
   useEffect(() => {
-    fetch('/api/projects')
-      .then(res => res.json())
-      .then(data => {
-        // Use backend data if available
-        setDbProjects(data);
-      })
-      .catch(err => console.error("Database not connected yet", err));
+    if (useDatabase) {
+      fetch('/api/projects')
+        .then(res => res.json())
+        .then(data => {
+          // Use backend data if available
+          setDbProjects(data);
+        })
+        .catch(err => console.error("Database not connected yet", err));
 
-    fetch('/api/individuals')
-      .then(res => res.json())
-      .then(data => {
-        setIndividuals(data);
-      })
-      .catch(err => console.error("Could not load individuals", err));
-  }, [view]); // Refresh when view changes (e.g. coming back from admin)
+      fetch('/api/individuals')
+        .then(res => res.json())
+        .then(data => {
+          setIndividuals(data);
+        })
+        .catch(err => console.error("Could not load individuals", err));
+    } else {
+       // Optional: Add logic to fetch individuals strictly from /api/sheets-dashboard if useDatabase is false
+       // and translate them. Currently Individuals.jsx does this internally.
+    }
+  }, [view, useDatabase]); // Refresh when view changes (e.g. coming back from admin)
 
-  // Use Db projects if they exist, otherwise fallback to an empty UI state or standard array
+  // Use DB products if they exist, otherwise fallback to an empty UI state or standard array
   const defaultProjects = [
     {
-      id: 'OP-OUROBOROS',
-      title: 'Project: Ouroboros',
-      shortDesc: 'Deep-packet inspection initiative targeting persistent threats within sector 7. Real-time topology mapping and automated counter-measures engaged.',
-      priority: 'ALPHA',
+      id: 'PROJ-1',
+      title: 'Incognitrix Academy',
+      shortDesc: 'Structured cyber security learning, labs, and skill progression for Incognitrix members.',
+      priority: 'Academy Team',
       status: 'ONGOING',
-      activeNodes: '1,402.84',
-      target: 'SECTOR 7',
-      department: 'RED TEAM // OFFENSIVE',
-      vectors: '14 IDENTIFIED',
+      target: 'Learners',
+      team: 'Academy Team',
       image: "https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=2072&auto=format&fit=crop"
     },
     {
-      id: 'OP-GLASSHOUSE',
-      title: 'Operation: Glasshouse',
-      shortDesc: 'Simulated penetration testing on external-facing API gateways. Identifying vulnerabilities in legacy authentication flows before Q3 compliance audit.',
-      priority: 'RED TEAM // OFFENSIVE',
+      id: 'PROJ-2',
+      title: 'Incognitrix Range',
+      shortDesc: 'Hands-on CTF and training range for offensive, defensive, and investigation practice.',
+      priority: 'Range Team',
       status: 'ONGOING',
-      target: 'API_V2_PROD',
-      vectors: '14 IDENTIFIED',
-      hasIcon: 'local_fire_department'
+      target: 'CTF Range',
+      team: 'Range Team',
+      hasIcon: 'flag'
     },
     {
-      id: 'PROT-SENTINEL',
-      title: 'Protocol: Sentinel',
-      shortDesc: 'Automated heuristic analysis of internal traffic patterns. Anomaly detection algorithms running at 94% confidence.',
-      priority: 'BLUE TEAM',
+      id: 'PROJ-3',
+      title: 'Incognitrix Portfolio',
+      shortDesc: 'Public portfolio and lab information hub for teams, members, achievements, CVEs, and products.',
+      priority: 'Portfolio Team',
       status: 'ACTIVE',
-      lastEvent: '2M AGO',
-      hasIcon: 'shield'
+      target: 'Public Portal',
+      team: 'Portfolio Team',
+      hasIcon: 'dashboard'
     },
     {
-      id: 'NET-RESTRUCT',
-      title: 'Node Restructure: Sector 4',
-      shortDesc: 'Physical and logical segregation of Sector 4 legacy systems from main operational core.',
-      priority: 'NETWORK OPS',
-      status: 'RESOLVED',
-      hasIcon: 'schema'
+      id: 'PROJ-4',
+      title: 'AR VR Project',
+      shortDesc: 'Augmented and virtual reality security training environments and interactive cyber awareness modules.',
+      priority: 'AR VR Team',
+      status: 'ONGOING',
+      target: 'Immersive Lab',
+      team: 'AR VR Team',
+      hasIcon: 'view_in_ar'
     }
   ];
 
   const projects = dbProjects.length > 0 ? dbProjects : defaultProjects;
 
-  // Cycle Hero Section periodically if there are multiple projects
+  // Cycle Hero Section periodically if there are multiple products
   useEffect(() => {
     if (projects.length <= 1 || isAutoMode) return;
     const interval = setInterval(() => {
@@ -144,8 +153,19 @@ function App() {
   const activeHeroProject = projects[activeHeroIndex] || null;
   const defaultImage = "https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=2072&auto=format&fit=crop";
 
-  // Helper function to render the Project List
-  const renderProjectList = () => (
+  const parseJsonArray = (value) => {
+    if (!value) return [];
+    if (Array.isArray(value)) return value;
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch(e) {
+      return [];
+    }
+  };
+
+  // Helper function to render the Product List
+  const renderProductList = () => (
     <div className="animate-fade-slide">
       {activeHeroProject && (
         <div className="relative w-full h-[512px] min-h-[400px] flex flex-col justify-end p-8 md:p-12 border-b ghost-border mb-12 overflow-hidden group">
@@ -204,7 +224,7 @@ function App() {
 
       <div className="max-w-7xl mx-auto px-6 md:px-12 pb-12">
         <div className="flex justify-between items-end mb-8 border-b ghost-border pb-4">
-          <h2 className="font-headline font-bold text-2xl tracking-tight text-on-surface">Active Directives</h2>
+          <h2 className="font-headline font-bold text-2xl tracking-tight text-on-surface">Active Products</h2>
           <div className="flex space-x-4">
             <button className="font-mono text-xs text-outline hover:text-primary-container transition-colors">FILTER: ALL</button>
             <button className="font-mono text-xs text-primary-container transition-colors">SORT: PRIORITY</button>
@@ -247,12 +267,12 @@ function App() {
                 ) : (
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-4 border-t ghost-border pt-4 relative z-10">
                     <div>
-                      <div className="font-mono text-[10px] text-outline mb-1">TARGET</div>
-                      <div className="font-mono text-xs text-on-surface truncate">{proj.target || proj.beneficiaries || 'SECTOR 7'}</div>
+                      <div className="font-mono text-[10px] text-outline mb-1">CREATED BY</div>
+                      <div className="font-mono text-xs text-on-surface truncate">{proj.team || proj.priority || 'Incognitrix Lab'}</div>
                     </div>
                     <div>
-                      <div className="font-mono text-[10px] text-outline mb-1">{proj.vectors ? 'VECTORS' : 'TEAM'}</div>
-                      <div className="font-mono text-xs text-on-surface truncate">{proj.vectors || proj.team || 'ALPHA'}</div>
+                      <div className="font-mono text-[10px] text-outline mb-1">STATUS</div>
+                      <div className="font-mono text-xs text-on-surface truncate">{proj.status || 'ACTIVE'}</div>
                     </div>
                     <div className="text-right hidden md:block">
                       <button className="font-mono text-xs text-primary-container uppercase hover:text-primary transition-colors">+ VIEW LOGS</button>
@@ -264,7 +284,7 @@ function App() {
           {projects.length === 0 && (
             <div className="col-span-full py-20 text-center font-mono text-outline">
               <span className="material-symbols-outlined text-4xl mb-4 block">dns</span>
-              No active directives connecting to master database at this time.
+              No active products connecting to master database at this time.
             </div>
           )}
         </div>
@@ -272,21 +292,21 @@ function App() {
     </div>
   );
 
-  // Helper function to render a single Project Details view
-  const renderProjectDetails = (project) => (
+  // Helper function to render a single Product Details view
+  const renderProductDetails = (project) => (
     <div className="pt-12 pb-12 px-6 lg:px-12 max-w-7xl mx-auto w-full flex flex-col gap-12 animate-fade-slide">
       <button 
         onClick={() => setSelectedProject(null)}
         className="self-start flex items-center gap-2 font-mono text-xs text-outline hover:text-primary-container transition-colors mb-4"
       >
         <span className="material-symbols-outlined text-sm">arrow_back</span>
-        RETURN TO DIRECTIVES
+        RETURN TO PRODUCTS
       </button>
 
       <section className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 mb-8">
         <div className="max-w-2xl">
           <div className="font-mono text-xs text-primary-container mb-2 tracking-widest">ID: {project.id} // STATUS: {project.status}</div>
-          <h1 className="font-headline text-5xl md:text-6xl font-bold tracking-tight text-primary leading-none mb-4">{project.title}</h1>
+              <h1 className="font-headline text-5xl md:text-6xl font-bold tracking-tight text-primary leading-none mb-4">{project.title}</h1>
           <p className="text-on-surface-variant text-lg">{project.description || project.shortDesc}</p>
         </div>
         <div className="flex flex-col items-end text-right">
@@ -341,14 +361,14 @@ function App() {
             <div className="absolute top-0 left-0 w-1 h-1 bg-primary cursor-pointer"></div>
             <h2 className="font-headline text-xl font-bold text-primary mb-8 flex items-center gap-2">
               <span className="material-symbols-outlined text-primary-container text-sm">linear_scale</span>
-              Project Timeline
+              Product Timeline
             </h2>
             <div className="relative pl-6 border-l ghost-border">
-              {Array.isArray(project.timeline) && project.timeline.map((item, idx) => (
+              {parseJsonArray(project.timeline).map((item, idx) => (
                 <div key={idx} className={`mb-8 relative group ${!item.active && item.phase?.includes('PENDING') ? 'opacity-50 hover:opacity-100 transition-opacity' : ''}`}>
                   {item.active ? (
                     <div className="absolute -left-[31px] top-1 w-3 h-3 bg-surface border-2 border-primary-container rounded-full animate-pulse shadow-[0_0_10px_rgba(0,245,255,0.4)]"></div>
-                  ) : item.phase.includes('PENDING') ? (
+                  ) : item.phase?.includes('PENDING') ? (
                     <div className="absolute -left-[31px] top-1 w-3 h-3 bg-surface border border-outline rounded-full"></div>
                   ) : (
                     <div className="absolute -left-[31px] top-1 w-3 h-3 bg-primary-container rounded-full shadow-[0_0_10px_rgba(0,245,255,0.4)]"></div>
@@ -379,7 +399,7 @@ function App() {
                   const pPriority = String(project.priority || "").toLowerCase();
                   const iTeam = String(ind.team_name || "").toLowerCase();
                   return iTeam && (iTeam === pTeam || iTeam === pPriority);
-                }).concat(Array.isArray(pOps) ? pOps : []); 
+                }).concat(Array.isArray(pOps) ? pOps.map(op => typeof op === 'string' ? { name: op, role: 'Operative' } : op) : []); 
                 return ops.map((op, idx) => (
                 <div 
                   key={idx} 
@@ -436,16 +456,22 @@ function App() {
               DASHBOARD
             </button>
             <button 
+              onClick={() => { setView('portal'); setSelectedProject(null); }}
+              className={`font-mono text-xs tracking-widest pb-1 transition-colors ${view === 'portal' && !selectedProject ? 'text-primary-container border-b-2 border-primary-container' : 'text-outline hover:text-primary-container'}`}
+            >
+              PRODUCTS
+            </button>
+            <button 
               onClick={() => setView('teams')}
               className={`font-mono text-xs tracking-widest pb-1 transition-colors ${view === 'teams' ? 'text-primary-container border-b-2 border-primary-container' : 'text-outline hover:text-primary-container'}`}
             >
               TEAMS
             </button>
             <button 
-              onClick={() => { setView('portal'); setSelectedProject(null); }} 
-              className={`font-mono text-xs tracking-widest pb-1 transition-colors ${view === 'portal' && !selectedProject ? 'text-primary-container border-b-2 border-primary-container' : 'text-outline hover:text-primary-container'}`}
+              onClick={() => { setView('individuals'); setSelectedProject(null); }}
+              className={`font-mono text-xs tracking-widest pb-1 transition-colors ${view === 'individuals' || view === 'individual-profile' ? 'text-primary-container border-b-2 border-primary-container' : 'text-outline hover:text-primary-container'}`}
             >
-              PROJECTS
+              INDIVIDUALS
             </button>
             <button 
               onClick={() => { setView('achievements'); setSelectedProject(null); }}
@@ -483,8 +509,8 @@ function App() {
             <AdminLogin onLogin={(user) => setAdminUser(user)} />
           )
         ) : view === 'attendance' ? (
-          <UserLogin onLogin={(user) => setView('portal')} />
-        ) : view === 'dashboard' ? <Dashboard /> : view === 'teams' ? <Teams onSelectProject={(p) => { setSelectedProject(p); setView('portal'); }} onSelectIndividual={(id) => { setSelectedIndividualId(id); setView('individual-profile'); }} /> : view === 'individuals' ? <Individuals onSelectIndividual={(id) => { setSelectedIndividualId(id); setView('individual-profile'); }} /> : view === 'individual-profile' ? <IndividualProfile individualId={selectedIndividualId} projects={projects} onNavigateToProject={(p) => { setSelectedProject(p); setView('portal'); }} onNavigateToTeam={() => setView('teams')} onBack={() => { setView('teams'); setSelectedIndividualId(null); }} /> : view === 'cves' ? <CVEs /> : view === 'achievements' ? <Achievements /> : (selectedProject ? renderProjectDetails(selectedProject) : renderProjectList())}
+          <UserLogin onLogin={() => setView('portal')} />
+        ) : view === 'dashboard' ? <Dashboard useDatabase={useDatabase} /> : view === 'teams' ? <Teams useDatabase={useDatabase} onSelectProject={(p) => { setSelectedProject(p); setView('portal'); }} onSelectIndividual={(id) => { setSelectedIndividualId(id); setView('individual-profile'); }} /> : view === 'individuals' ? <Individuals useDatabase={useDatabase} onSelectIndividual={(id) => { setSelectedIndividualId(id); setView('individual-profile'); }} /> : view === 'individual-profile' ? <IndividualProfile useDatabase={useDatabase} individualId={selectedIndividualId} projects={projects} onNavigateToProject={(p) => { setSelectedProject(p); setView('portal'); }} onNavigateToTeam={() => setView('teams')} onBack={() => { setView('individuals'); setSelectedIndividualId(null); }} /> : view === 'cves' ? <CVEs useDatabase={useDatabase} /> : view === 'achievements' ? <Achievements useDatabase={useDatabase} /> : (selectedProject ? renderProductDetails(selectedProject) : renderProductList())}
       </main>
 
       {/* Special Alive Effects Overlay */}
@@ -492,24 +518,36 @@ function App() {
       <div className="pointer-events-none fixed inset-0 z-40 shadow-[inset_0_0_100px_rgba(0,0,0,0.8)]"></div>
       <div className="ambient-particles pointer-events-none fixed inset-0 z-30"></div>
 
-      {/* Floating Auto Mode Toggle */}
-      <button 
-        onClick={() => {
-          setIsAutoMode(!isAutoMode);
-          setAutoState('list');
-          setAutoIndex(0);
-          if (view !== 'portal' && view !== 'individuals' && view !== 'individual-profile') {
-            setView('portal');
-            setSelectedProject(null);
-          }
-        }}
-        className={`fixed bottom-6 right-6 z-50 px-4 py-2 flex items-center gap-2 rounded-full border shadow-lg font-mono text-xs font-bold tracking-widest transition-all duration-300 ${isAutoMode ? 'bg-primary text-on-primary-fixed border-primary shadow-[0_0_20px_rgba(0,245,255,0.6)] animate-pulse' : 'bg-surface-container/80 backdrop-blur-sm text-outline border-outline/30 hover:text-primary hover:border-primary/50'}`}
-      >
-        <span className="material-symbols-outlined text-[18px]">
-          {isAutoMode ? 'smart_toy' : 'settings_b_roll'}
-        </span>
-        AUTO {isAutoMode ? 'ON' : 'OFF'}
-      </button>
+      {/* Floating Global Data Toggles and Auto Mode */}
+      <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-3 items-end">
+        <button 
+          onClick={() => setUseDatabase(!useDatabase)}
+          className={`px-4 py-2 flex items-center gap-2 rounded-full border shadow-lg font-mono text-xs font-bold tracking-widest transition-all duration-300 ${useDatabase ? 'bg-secondary text-background border-secondary shadow-[0_0_20px_rgba(255,107,107,0.6)]' : 'bg-surface-container/80 backdrop-blur-sm text-outline border-outline/30 hover:text-secondary hover:border-secondary/50'}`}
+        >
+          <span className="material-symbols-outlined text-[18px]">
+            {useDatabase ? 'database' : 'table_view'}
+          </span>
+          {useDatabase ? 'DB SOURCE' : 'SHEET SOURCE'}
+        </button>
+
+        <button 
+          onClick={() => {
+            setIsAutoMode(!isAutoMode);
+            setAutoState('list');
+            setAutoIndex(0);
+            if (view !== 'portal' && view !== 'individuals' && view !== 'individual-profile') {
+              setView('portal');
+              setSelectedProject(null);
+            }
+          }}
+          className={`px-4 py-2 flex items-center gap-2 rounded-full border shadow-lg font-mono text-xs font-bold tracking-widest transition-all duration-300 ${isAutoMode ? 'bg-primary text-on-primary-fixed border-primary shadow-[0_0_20px_rgba(0,245,255,0.6)] animate-pulse' : 'bg-surface-container/80 backdrop-blur-sm text-outline border-outline/30 hover:text-primary hover:border-primary/50'}`}
+        >
+          <span className="material-symbols-outlined text-[18px]">
+            {isAutoMode ? 'smart_toy' : 'settings_b_roll'}
+          </span>
+          AUTO {isAutoMode ? 'ON' : 'OFF'}
+        </button>
+      </div>
 
     </div>
   );

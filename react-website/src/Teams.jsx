@@ -5,13 +5,49 @@ const API_TEAMS = '/api/teams';
 const API_PROJECTS = '/api/projects';
 const API_INDIVIDUALS = '/api/individuals';
 
-function Teams({ onSelectProject, onSelectIndividual }) {
+const orderTeams = (items) => [...items].sort((a, b) => {
+  if (a.name === 'Red Team') return -1;
+  if (b.name === 'Red Team') return 1;
+  return String(a.name || '').localeCompare(String(b.name || ''));
+});
+
+function Teams({ useDatabase, onSelectProject, onSelectIndividual }) {
   const [teams, setTeams] = useState([]);
   const [projects, setProjects] = useState([]);
   const [individuals, setIndividuals] = useState([]);
   const [selectedTeam, setSelectedTeam] = useState(null);
 
   useEffect(() => {
+    if (useDatabase) {
+      Promise.all([
+        fetch(API_TEAMS).then(res => res.json()),
+        fetch(API_PROJECTS).then(res => res.json()),
+        fetch(API_INDIVIDUALS).then(res => res.json())
+      ]).then(([teamsData, projectsData, indsData]) => {
+        const safeTeams = Array.isArray(teamsData) ? teamsData : [];
+        const safeProjects = Array.isArray(projectsData) ? projectsData : [];
+        const safeIndividuals = Array.isArray(indsData) ? indsData : [];
+
+        setTeams(orderTeams(safeTeams));
+        setProjects(safeProjects);
+        // Add explicit parsing of achievements for individuals
+        const enrichedInds = safeIndividuals.map(ind => {
+            let achs = [];
+            try { achs = JSON.parse(ind.achievements); } catch(e){}
+            return {
+                ...ind,
+                displayName: ind.name,
+                teamName: ind.team_name,
+                completedPaths: 0,
+                techStack: ['DB Source'],
+                hasAchievements: achs && achs.length > 0
+            };
+        });
+        setIndividuals(enrichedInds);
+      }).catch(console.error);
+      return;
+    }
+
     fetch('/api/sheets-dashboard')
       .then(res => res.json())
       .then(sheetsData => {
@@ -49,7 +85,7 @@ function Teams({ onSelectProject, onSelectIndividual }) {
           current_objective: `Sustain and advance ${name} directives.`
         }));
 
-        setTeams(mappedTeams);
+        setTeams(orderTeams(mappedTeams));
 
         // Remove duplicates and link to new sub-team IDs
         let globalIdCounter = 1;
@@ -88,8 +124,14 @@ function Teams({ onSelectProject, onSelectIndividual }) {
   }, []);
 
   if (selectedTeam) {
-    const teamProjects = projects.filter(p => p.priority && p.priority.toLowerCase() === selectedTeam.name.toLowerCase());
-    const teamMembers = individuals.filter(i => i.team_id === selectedTeam.id);
+    const selectedTeamId = String(selectedTeam.id);
+    const selectedTeamName = selectedTeam.name.toLowerCase();
+    const teamProjects = projects.filter(p => {
+      const projectTeam = String(p.team || '').toLowerCase();
+      const projectPriority = String(p.priority || '').toLowerCase();
+      return projectTeam === selectedTeamName || projectPriority === selectedTeamName;
+    });
+    const teamMembers = individuals.filter(i => String(i.team_id || '') === selectedTeamId);
     const ongoingProject = teamProjects.length > 0 ? teamProjects[0] : null;
 
     return (
@@ -164,7 +206,7 @@ function Teams({ onSelectProject, onSelectIndividual }) {
 
           {/* Main Content Area */}
           <section className="flex-1 flex flex-col gap-8">
-            {/* Ongoing Project Bento Grid */}
+            {/* Ongoing Product Bento Grid */}
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
               {/* Primary Assignment */}
               <div className="xl:col-span-2 bg-surface-container-low rounded p-6 border border-outline/15 relative overflow-hidden group">
@@ -173,7 +215,7 @@ function Teams({ onSelectProject, onSelectIndividual }) {
                   <div className="flex justify-between items-start mb-6">
                     <div>
                       <h2 className="text-xs font-bold text-primary tracking-widest uppercase mb-1 flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-primary animate-pulse"></span> Ongoing Project
+                        <span className="w-2 h-2 rounded-full bg-primary animate-pulse"></span> Ongoing Product
                       </h2>
                       {ongoingProject ? (
                         <h3 className="text-xl font-bold text-on-surface tracking-tight">{ongoingProject.title}</h3>
@@ -242,7 +284,7 @@ function Teams({ onSelectProject, onSelectIndividual }) {
                         onClick={() => onSelectProject?.(ongoingProject)} 
                         className="text-xs font-bold text-primary hover:text-primary-container transition-colors uppercase tracking-wider flex items-center gap-1 group w-full"
                       >
-                        Access Project Dashboard <span className="material-symbols-outlined text-[16px] group-hover:translate-x-1 transition-transform">arrow_forward</span>
+                        Access Product Dashboard <span className="material-symbols-outlined text-[16px] group-hover:translate-x-1 transition-transform">arrow_forward</span>
                       </button>
                     </div>
                   </div>
@@ -250,14 +292,14 @@ function Teams({ onSelectProject, onSelectIndividual }) {
               )}
             </div>
 
-            {/* Other Projects */}
+            {/* Other Products */}
             <div className="bg-surface-container-low rounded border border-outline/15 flex flex-col">
               <div className="p-6 border-b border-outline/20 flex justify-between items-center">
-                <h2 className="text-sm font-bold text-on-surface tracking-widest uppercase">Other Projects</h2>
+                <h2 className="text-sm font-bold text-on-surface tracking-widest uppercase">Other Products</h2>
               </div>
               <div className="flex flex-col">
                 {teamProjects.length <= 1 ? (
-                  <div className="p-6 text-center text-outline font-mono text-xs">No additional projects logged.</div>
+                  <div className="p-6 text-center text-outline font-mono text-xs">No additional products logged.</div>
                 ) : (
                   teamProjects.filter(p => !ongoingProject || p.id !== ongoingProject.id).map(proj => (
                     <div 
@@ -298,9 +340,14 @@ function Teams({ onSelectProject, onSelectIndividual }) {
 
       {/* Asymmetrical Grid */}
       <div className="grid grid-cols-1 md:grid-cols-12 gap-6 md:gap-8">
-        {teams.map((team, index) => {
-          const teamProjects = projects.filter(p => p.priority && p.priority.toLowerCase() === team.name.toLowerCase());
-          const teamMembers = individuals.filter(i => i.team_id === team.id);
+        {orderTeams(teams).map((team, index) => {
+          const teamName = team.name.toLowerCase();
+          const teamProjects = projects.filter(p => {
+            const projectTeam = String(p.team || '').toLowerCase();
+            const projectPriority = String(p.priority || '').toLowerCase();
+            return projectTeam === teamName || projectPriority === teamName;
+          });
+          const teamMembers = individuals.filter(i => String(i.team_id || '') === String(team.id));
 
           const isHero = index % 3 === 0;
           const colSpan = isHero ? "md:col-span-8" : (index % 3 === 1 ? "md:col-span-4" : "md:col-span-12");

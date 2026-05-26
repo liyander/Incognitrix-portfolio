@@ -1,15 +1,30 @@
 /* Designed and engineered by liyander Rishwanth (CyberGhost05) */
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
 
-function Individuals({ onSelectIndividual }) {
+function Individuals({ onSelectIndividual, useDatabase }) {
   const [individuals, setIndividuals] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
 
+  const normalizeName = (name) => String(name || '').toLowerCase().replace(/[\s.]/g, '');
+  const sortIndividuals = (items) => [...items].sort((a, b) => {
+    const aLead = ['liyandarrishwanthl', 'liyanderrishwanthl'].includes(normalizeName(a.name));
+    const bLead = ['liyandarrishwanthl', 'liyanderrishwanthl'].includes(normalizeName(b.name));
+    if (aLead !== bLead) return aLead ? -1 : 1;
+    return String(a.name || '').localeCompare(String(b.name || ''));
+  });
+
   useEffect(() => {
     const fetchIndividuals = async () => {
       try {
+        if (useDatabase) {
+           const response = await fetch('/api/individuals');
+           const data = await response.json();
+           setIndividuals(sortIndividuals(Array.isArray(data) ? data : []));
+           setLoading(false);
+           return;
+        }
+
         const response = await fetch('/api/sheets-dashboard');
         const sheetsData = await response.json();
         
@@ -48,7 +63,7 @@ function Individuals({ onSelectIndividual }) {
            }
         });
 
-        setIndividuals(unique);
+        setIndividuals(sortIndividuals(unique));
         setLoading(false);
       } catch (error) {
         console.error('Error fetching individuals:', error);
@@ -58,11 +73,11 @@ function Individuals({ onSelectIndividual }) {
     fetchIndividuals();
   }, []);
 
-  const filteredIndividuals = individuals.filter(ind => 
-    ind.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    ind.role.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    ind.department.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredIndividuals = sortIndividuals(individuals.filter(ind => 
+    String(ind.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+    String(ind.role || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+    String(ind.department || '').toLowerCase().includes(searchQuery.toLowerCase())
+  ));
 
   return (
     <div className="flex-1 bg-background min-h-screen relative animate-fade-slide">
@@ -113,7 +128,7 @@ function Individuals({ onSelectIndividual }) {
                   <article key={ind.id} className="lg:col-span-8 bg-surface-container-low border border-transparent hover:border-outline-variant/30 transition-all group relative overflow-hidden flex flex-col sm:flex-row">
                     <div className="absolute top-0 right-0 w-16 h-16 bg-gradient-to-br from-primary/10 to-transparent blur-xl"></div>
                     <div className="absolute top-0 right-0 w-8 h-8 border-t-2 border-r-2 border-primary/30 m-4"></div>
-                    <div className="w-full sm:w-1/3 bg-surface-container-lowest relative min-h-[200px]">
+                    <div className="w-full sm:w-1/3 bg-surface-container-lowest relative min-h-[220px] shrink-0">
                       {ind.image ? (
                         <img alt="Profile avatar" className="w-full h-full object-cover opacity-80 mix-blend-luminosity group-hover:mix-blend-normal transition-all duration-500" src={ind.image} />
                       ) : (
@@ -126,12 +141,12 @@ function Individuals({ onSelectIndividual }) {
                         <span className="px-1.5 py-0.5 bg-error-container/80 text-error font-label text-[9px] uppercase tracking-widest backdrop-blur-sm">Lvl_5_Clearance</span>
                       </div>
                     </div>
-                    <div className="p-6 flex flex-col justify-between flex-1">
+                    <div className="p-6 flex flex-col justify-between flex-1 min-w-0">
                       <div>
-                        <div className="flex justify-between items-start mb-2">
-                          <div>
-                            <h3 className="font-headline text-2xl font-bold text-on-surface">{ind.name}</h3>
-                            <p className="font-label text-xs text-primary uppercase tracking-widest mt-1">{ind.role}</p>
+                        <div className="flex justify-between items-start gap-4 mb-2">
+                          <div className="min-w-0">
+                            <h3 className="font-headline text-2xl font-bold text-on-surface break-words">{ind.name}</h3>
+                            <p className="font-label text-xs text-primary uppercase tracking-widest mt-1 break-words">{ind.role || 'Operative'}</p>
                           </div>
                           <span className="material-symbols-outlined text-secondary text-sm" data-icon="wifi_tethering" title="Active Connection">wifi_tethering</span>
                         </div>
@@ -142,9 +157,12 @@ function Individuals({ onSelectIndividual }) {
                           <p className="font-body text-on-surface-variant text-sm line-clamp-3">
                              <span className="text-xs text-primary opacity-60 uppercase mr-2">Year:</span> {ind.year_of_study}
                           </p>
+                          <p className="font-body text-on-surface-variant text-sm line-clamp-3">
+                             <span className="text-xs text-primary opacity-60 uppercase mr-2">Team:</span> {ind.team_name || 'UNASSIGNED'}
+                          </p>
                         </div>
                       </div>
-                      <div className="mt-6 pt-4 border-t border-outline-variant/20 flex flex-wrap gap-4 items-center justify-between">
+                        <div className="mt-6 pt-4 border-t border-outline-variant/20 flex flex-wrap gap-4 items-center justify-between">
                         <div className="flex gap-4">
                           <div className="flex flex-col">
                             <span className="font-label text-[9px] text-on-surface-variant uppercase tracking-widest">ID Code</span>
@@ -176,9 +194,9 @@ function Individuals({ onSelectIndividual }) {
                         )}
                       </div>
                       <div className="flex justify-between items-start flex-col">
-                        <div>
-                          <h3 className="font-headline text-lg font-bold text-on-surface">{ind.name}</h3>
-                          <p className="font-label text-[10px] text-tertiary uppercase tracking-widest mt-0.5">{ind.role}</p>
+                        <div className="min-w-0">
+                          <h3 className="font-headline text-lg font-bold text-on-surface break-words">{ind.name}</h3>
+                          <p className="font-label text-[10px] text-tertiary uppercase tracking-widest mt-0.5 break-words">{ind.role || 'Operative'}</p>
                         </div>
                       </div>
                       <div className="mt-4 space-y-2 flex-grow">
@@ -187,6 +205,9 @@ function Individuals({ onSelectIndividual }) {
                           </p>
                           <p className="font-body text-on-surface-variant text-xs line-clamp-2">
                              <span className="opacity-60 uppercase mr-1">Year:</span> {ind.year_of_study}
+                          </p>
+                          <p className="font-body text-on-surface-variant text-xs line-clamp-2">
+                             <span className="opacity-60 uppercase mr-1">Team:</span> {ind.team_name || 'UNASSIGNED'}
                           </p>
                       </div>
                       <div className="mt-5 pt-3 border-t border-outline-variant/10 flex justify-between items-center cursor-pointer group-hover:border-primary/30" onClick={() => onSelectIndividual(ind.id)}>

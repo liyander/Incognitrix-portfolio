@@ -1,9 +1,44 @@
 /* Designed and engineered by liyander Rishwanth (CyberGhost05) */
 import React, { useState, useEffect } from 'react';
 
-function CVEs({ onSelectCve }) {
+function CVEs({ onSelectCve, useDatabase }) {
   const [cves, setCves] = useState([]);
   const [selectedCve, setSelectedCve] = useState(null);
+
+  const orgNames = [
+    'Google', 'Microsoft', 'Apple', 'Cambridge', 'Oxford', 'NASA',
+    'Mesop', 'Chamilo', 'Recipes', 'Tandoor', 'Mealie', 'Directus',
+    'Budibase', 'PraisonAI', 'Saleor'
+  ];
+
+  const parseLinks = (value) => {
+    if (!value) return [];
+    if (Array.isArray(value)) return value.filter(Boolean);
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed.filter(Boolean) : [parsed].filter(Boolean);
+    } catch (e) {
+      return [value].filter(Boolean);
+    }
+  };
+
+  const getOrg = (cve) => {
+    const text = `${cve.cve_number || ''} ${cve.details || ''}`;
+    return orgNames.find(org => text.toLowerCase().includes(org.toLowerCase())) || 'Research Target';
+  };
+
+  const highlightOrgs = (text) => {
+    const value = String(text || '');
+    const pattern = new RegExp(`(${orgNames.map(org => org.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`, 'gi');
+    return value.split(pattern).map((part, index) => {
+      const matched = orgNames.some(org => org.toLowerCase() === part.toLowerCase());
+      return matched ? (
+        <span key={index} className="text-primary-container font-bold bg-primary/10 border border-primary/20 px-1 rounded">
+          {part}
+        </span>
+      ) : part;
+    });
+  };
 
   useEffect(() => {
     fetch('/api/cves')
@@ -39,10 +74,14 @@ function CVEs({ onSelectCve }) {
             </div>
             
             <h1 className="font-headline text-5xl md:text-6xl font-black text-primary mb-6 tracking-tighter">{selectedCve.cve_number}</h1>
+            <div className="mb-6 inline-flex items-center gap-2 bg-primary/10 border border-primary/25 text-primary-container px-3 py-1 rounded-full font-mono text-xs uppercase tracking-widest">
+              <span className="material-symbols-outlined text-sm">apartment</span>
+              {getOrg(selectedCve)}
+            </div>
             
             <div className="bg-surface-dim border-l-4 border-primary/50 p-6 mb-8 rounded-r">
               <p className="font-mono text-base text-on-surface-variant leading-relaxed">
-                {selectedCve.details}
+                {highlightOrgs(selectedCve.details)}
               </p>
             </div>
 
@@ -54,13 +93,15 @@ function CVEs({ onSelectCve }) {
                 </div>
               )}
               
-              {selectedCve.reference_link && (
+              {parseLinks(selectedCve.reference_link).length > 0 && (
                 <div className="bg-background border border-outline/20 p-6 rounded relative shadow-md flex flex-col justify-center gap-4">
                   <div className="absolute top-0 left-4 -translate-y-1/2 bg-surface-container-low px-2 font-mono text-xs text-primary font-bold">External Reference</div>
-                  <a href={selectedCve.reference_link} target="_blank" rel="noopener noreferrer" className="mt-2 text-primary-container hover:text-primary transition-colors font-mono underline break-all flex items-center gap-2">
-                    <span className="material-symbols-outlined text-lg">public</span>
-                    {selectedCve.reference_link}
-                  </a>
+                  {parseLinks(selectedCve.reference_link).map((link, index) => (
+                    <a key={index} href={link} target="_blank" rel="noopener noreferrer" className="mt-2 text-primary-container hover:text-primary transition-colors font-mono underline break-all flex items-center gap-2">
+                      <span className="material-symbols-outlined text-lg">public</span>
+                      {link}
+                    </a>
+                  ))}
                 </div>
               )}
             </div>
@@ -112,7 +153,11 @@ function CVEs({ onSelectCve }) {
               <span className="material-symbols-outlined text-sm">warning</span> DISCLOSED
             </div>
             <h2 className="font-headline font-bold text-2xl text-primary mb-3 group-hover:text-primary-container transition-colors tracking-tight">{cve.cve_number}</h2>
-            <p className="font-mono text-sm text-outline line-clamp-3 mb-6 relative z-10 group-hover:text-on-surface-variant transition-colors">{cve.details}</p>
+            <div className="mb-3 inline-flex items-center gap-1 bg-surface-container-high border border-outline/20 text-primary-container px-2 py-0.5 rounded font-mono text-[10px] uppercase tracking-wider">
+              <span className="material-symbols-outlined text-[12px]">apartment</span>
+              {getOrg(cve)}
+            </div>
+            <p className="font-mono text-sm text-outline line-clamp-3 mb-6 relative z-10 group-hover:text-on-surface-variant transition-colors">{highlightOrgs(cve.details)}</p>
             <div className="absolute right-4 bottom-4 text-xs font-mono text-primary font-bold opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
               VIEW DETAILS <span className="material-symbols-outlined text-sm">arrow_forward</span>
             </div>
