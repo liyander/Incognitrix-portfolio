@@ -13,27 +13,46 @@ function UserLogin({ onLogin }) {
   const [qrCode, setQrCode] = useState("");
   const [attendanceMessage, setAttendanceMessage] = useState("");
 
+  const login = async (markAttendanceOnly = false) => {
+    const response = await fetch("/api/user/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password, markAttendanceOnly }),
+    });
+    return response.json();
+  };
+
   const handleLoginSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError("");
 
     try {
-      const response = await fetch("/api/user/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password, markAttendanceOnly: true }),
-      });
-      const data = await response.json();
-      if (data.success && data.attendanceRecorded !== undefined) {
-        setAttendanceMessage(data.message);
-        setStep(3);
-      } else if (data.success && data.requires2FA) {
+      const data = await login(false);
+      if (data.success && data.requires2FA) {
         setIsFirstTime(data.isFirstTime);
         if (data.qr) setQrCode(data.qr);
         setStep(2);
       } else {
         setError(data.message || "Login failed");
+      }
+    } catch (err) {
+      setError("Cannot connect to server. Ensure backend is running.");
+      console.error(err);
+    }
+    setLoading(false);
+  };
+
+  const handleQuickAttendance = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const data = await login(true);
+      if (data.success && data.attendanceRecorded !== undefined) {
+        setAttendanceMessage(data.message);
+        setStep(3);
+      } else {
+        setError(data.message || "Attendance failed");
       }
     } catch (err) {
       setError("Cannot connect to server. Ensure backend is running.");
@@ -51,7 +70,7 @@ function UserLogin({ onLogin }) {
       const response = await fetch("/api/user/verify-2fa", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, token: otp }),
+        body: JSON.stringify({ username, token: otp.replace(/\s/g, "") }),
       });
       const data = await response.json();
       if (data.success) {
@@ -123,7 +142,15 @@ function UserLogin({ onLogin }) {
               disabled={loading}
               className="mt-4 bg-primary-container text-on-primary-fixed font-headline font-bold text-sm tracking-widest uppercase py-4 rounded hover:bg-primary transition-colors disabled:opacity-50"
             >
-              {loading ? 'AUTHENTICATING...' : 'INITIATE LOGIN'}
+              {loading ? 'AUTHENTICATING...' : 'LOGIN WITH 2FA'}
+            </button>
+            <button
+              type="button"
+              disabled={loading}
+              onClick={handleQuickAttendance}
+              className="bg-surface-lowest text-outline border border-outline-variant font-headline font-bold text-xs tracking-widest uppercase py-3 rounded hover:text-primary hover:border-primary transition-colors disabled:opacity-50"
+            >
+              MARK ATTENDANCE WITHOUT 2FA
             </button>
           </form>
         ) : step === 2 ? (

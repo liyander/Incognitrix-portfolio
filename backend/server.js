@@ -654,7 +654,7 @@ app.post("/api/user/login", async (req, res) => {
 
         if (!user.has_2fa_enabled) {
             // Initiate 2FA setup
-            const secret = speakeasy.generateSecret({ name: `Incognitrix portfolio` });
+            const secret = speakeasy.generateSecret({ name: `Incognitrix Lab:${user.username}`, issuer: 'Incognitrix Lab' });
             await pool.query("UPDATE users SET twofa_secret = ? WHERE id = ?", [secret.base32, user.id]);
             const qrUrl = await qrcode.toDataURL(secret.otpauth_url);
             return res.json({ success: true, requires2FA: true, isFirstTime: true, qr: qrUrl, username: user.username });
@@ -675,10 +675,15 @@ app.post("/api/user/verify-2fa", async (req, res) => {
         if (rows.length === 0) return res.status(404).json({ success: false, message: "User not found" });
         
         const user = rows[0];
+        if (!user.twofa_secret) {
+            return res.status(400).json({ success: false, message: "2FA is not configured. Please login again to generate a QR code." });
+        }
+        const sanitizedToken = String(token || '').replace(/\s/g, '');
         const verified = speakeasy.totp.verify({
             secret: user.twofa_secret,
             encoding: "base32",
-            token: token
+            token: sanitizedToken,
+            window: 1
         });
 
         if (verified) {
