@@ -345,27 +345,15 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
     }
   };
 
-  const getDefaultIndividualUsername = (name = '') => (
-    name
-      .toLowerCase()
-      .trim()
-      .replace(/[^a-z0-9]+/g, '.')
-      .replace(/^\.+|\.+$/g, '')
-  );
-
-  const handleUpdateIndividualPassword = async (ind) => {
-    const suggestedUsername = getDefaultIndividualUsername(ind.name);
-    const username = window.prompt(`Username for ${ind.name}`, suggestedUsername);
-    if (!username) return;
-
-    const newPassword = window.prompt(`New password for ${username}`);
+  const handleUpdateOperativePassword = async (operative) => {
+    const newPassword = window.prompt(`New password for ${operative.username}`);
     if (!newPassword) return;
 
     try {
       const response = await fetch('/api/admin/update-user-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: username.trim(), newPassword })
+        body: JSON.stringify({ username: operative.username, newPassword })
       });
       const data = await response.json().catch(() => ({}));
 
@@ -374,10 +362,30 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
         return;
       }
 
-      alert(`${username.trim()} password updated. 2FA was reset for a fresh setup.`);
+      alert(`${operative.username} password updated. 2FA was reset for a fresh setup.`);
     } catch (err) {
-      console.error('Failed to update individual password', err);
-      alert('Failed to update individual password. Check console.');
+      console.error('Failed to update operative password', err);
+      alert('Failed to update operative password. Check console.');
+    }
+  };
+
+  const handleDeleteOperativeUser = async (operative) => {
+    if (!window.confirm(`Delete operative login for ${operative.username}? Attendance history for this login will also be removed.`)) return;
+
+    try {
+      const response = await fetch(`/api/admin/users/${operative.id}`, { method: 'DELETE' });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || !data.success) {
+        alert(data.message || 'Failed to delete operative login.');
+        return;
+      }
+
+      fetchAttendance();
+      alert(`${operative.username} deleted from operative logins.`);
+    } catch (err) {
+      console.error('Failed to delete operative login', err);
+      alert('Failed to delete operative login. Check console.');
     }
   };
 
@@ -660,12 +668,13 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                     <th className="pb-3 px-4">Operative</th>
                     <th className="pb-3 px-4 text-center">Total Attendances</th>
                     <th className="pb-3 px-4 text-right">Attendance %</th>
+                    <th className="pb-3 px-4 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {attendanceStats.length === 0 ? (
                     <tr>
-                      <td colSpan="4" className="text-center py-6 text-outline">No attendance records found in the database.</td>
+                      <td colSpan="5" className="text-center py-6 text-outline">No attendance records found in the database.</td>
                     </tr>
                   ) : (
                     attendanceStats.map(stat => (
@@ -677,6 +686,24 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                           <span className={`px-2 py-1 rounded border ${stat.percentage > 80 ? 'bg-primary-container/10 border-primary-container/30 text-primary-container' : stat.percentage > 50 ? 'bg-outline/10 border-outline/30 text-outline' : 'bg-error/10 border-error/30 text-error'}`}>
                             {stat.percentage}%
                           </span>
+                        </td>
+                        <td className="py-4 px-4">
+                          <div className="flex justify-end gap-2">
+                            <button
+                              onClick={() => handleUpdateOperativePassword(stat)}
+                              className="text-tertiary hover:bg-tertiary/10 px-3 py-1.5 rounded transition-colors font-mono text-[10px] flex items-center gap-1 border border-tertiary/20"
+                            >
+                              <span className="material-symbols-outlined text-sm">lock_reset</span>
+                              PASSWORD
+                            </button>
+                            <button
+                              onClick={() => handleDeleteOperativeUser(stat)}
+                              className="text-error hover:bg-error/10 px-3 py-1.5 rounded transition-colors font-mono text-[10px] flex items-center gap-1 border border-error/20"
+                            >
+                              <span className="material-symbols-outlined text-sm">delete</span>
+                              DELETE
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))
@@ -1059,13 +1086,6 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                     >
                       <span className="material-symbols-outlined text-sm">edit</span>
                       EDIT
-                    </button>
-                    <button 
-                      onClick={() => handleUpdateIndividualPassword(ind)}
-                      className="text-tertiary hover:bg-tertiary/10 px-4 py-2 rounded transition-colors font-mono text-xs flex items-center gap-2 border border-tertiary/20"
-                    >
-                      <span className="material-symbols-outlined text-sm">lock_reset</span>
-                      PASSWORD
                     </button>
                     <button 
                       onClick={() => handleDeleteIndividual(ind.id)}

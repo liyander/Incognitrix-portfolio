@@ -540,6 +540,23 @@ app.post('/api/admin/update-user-password', async (req, res) => {
     }
 });
 
+// Admin Delete Operative User
+app.delete('/api/admin/users/:id', async (req, res) => {
+    try {
+        await pool.query('DELETE FROM attendance WHERE user_id = ?', [req.params.id]);
+        const [result] = await pool.query('DELETE FROM users WHERE id = ?', [req.params.id]);
+
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ success: false, message: 'Operative user not found' });
+        }
+
+        res.json({ success: true, message: 'Operative user deleted successfully' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ success: false, message: 'Server error' });
+    }
+});
+
 // Admin Change Password
 app.post('/api/admin/change-password', async (req, res) => {
     const { username, currentPassword, newPassword } = req.body;
