@@ -13,6 +13,11 @@ function Individuals({ onSelectIndividual, useDatabase }) {
     if (aLead !== bLead) return aLead ? -1 : 1;
     return String(a.name || '').localeCompare(String(b.name || ''));
   });
+  const getCurrentDayWork = (ind) => {
+    if (ind.current_day_work) return ind.current_day_work;
+    if (ind.daily_work) return ind.daily_work;
+    return '';
+  };
 
   useEffect(() => {
     const fetchIndividuals = async () => {
@@ -160,6 +165,9 @@ function Individuals({ onSelectIndividual, useDatabase }) {
                           <p className="font-body text-on-surface-variant text-sm line-clamp-3">
                              <span className="text-xs text-primary opacity-60 uppercase mr-2">Team:</span> {ind.team_name || 'UNASSIGNED'}
                           </p>
+                          <p className="font-body text-on-surface-variant text-sm line-clamp-3">
+                             <span className="text-xs text-primary opacity-60 uppercase mr-2">Current Work:</span> {getCurrentDayWork(ind) || 'No work update recorded for today.'}
+                          </p>
                         </div>
                       </div>
                         <div className="mt-6 pt-4 border-t border-outline-variant/20 flex flex-wrap gap-4 items-center justify-between">
@@ -208,6 +216,9 @@ function Individuals({ onSelectIndividual, useDatabase }) {
                           </p>
                           <p className="font-body text-on-surface-variant text-xs line-clamp-2">
                              <span className="opacity-60 uppercase mr-1">Team:</span> {ind.team_name || 'UNASSIGNED'}
+                          </p>
+                          <p className="font-body text-on-surface-variant text-xs line-clamp-3">
+                             <span className="opacity-60 uppercase mr-1">Current Work:</span> {getCurrentDayWork(ind) || 'No work update recorded for today.'}
                           </p>
                       </div>
                       <div className="mt-5 pt-3 border-t border-outline-variant/10 flex justify-between items-center cursor-pointer group-hover:border-primary/30" onClick={() => onSelectIndividual(ind.id)}>

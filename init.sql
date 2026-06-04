@@ -34,10 +34,21 @@ CREATE TABLE IF NOT EXISTS individuals (
     team_id INT,
     department VARCHAR(255),
     year_of_study VARCHAR(255),
+    daily_work TEXT,
     achievements JSON,
     certificates JSON,
     research_work JSON,
     image TEXT
+);
+
+CREATE TABLE IF NOT EXISTS individual_work_logs (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    individual_id INT NOT NULL,
+    work_date DATE NOT NULL,
+    work_text TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY individual_work_date (individual_id, work_date)
 );
 
 CREATE TABLE IF NOT EXISTS projects (
@@ -92,6 +103,7 @@ TRUNCATE TABLE future_scopes;
 TRUNCATE TABLE achievements;
 TRUNCATE TABLE cves;
 TRUNCATE TABLE projects;
+TRUNCATE TABLE individual_work_logs;
 TRUNCATE TABLE individuals;
 TRUNCATE TABLE teams;
 SET FOREIGN_KEY_CHECKS = 1;

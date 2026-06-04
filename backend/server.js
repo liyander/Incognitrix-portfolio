@@ -91,6 +91,22 @@ async function ensureRuntimeSchema() {
         if (!userColumns.some(col => col.Field === 'has_2fa_enabled')) {
             await pool.query('ALTER TABLE users ADD COLUMN has_2fa_enabled BOOLEAN DEFAULT FALSE');
         }
+
+        const [individualColumns] = await pool.query('SHOW COLUMNS FROM individuals');
+        if (!individualColumns.some(col => col.Field === 'daily_work')) {
+            await pool.query('ALTER TABLE individuals ADD COLUMN daily_work TEXT');
+        }
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS individual_work_logs (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                individual_id INT NOT NULL,
+                work_date DATE NOT NULL,
+                work_text TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY individual_work_date (individual_id, work_date)
+            )
+        `);
     } catch (err) {
         console.error('Runtime schema migration failed:', err);
     }
@@ -259,9 +275,10 @@ app.delete('/api/teams/:id', async (req, res) => {
 app.get('/api/individuals', async (req, res) => {
     try {
         const [rows] = await pool.query(`
-            SELECT i.*, t.name as team_name 
+            SELECT i.*, t.name as team_name, wl.work_text as current_day_work
             FROM individuals i 
             LEFT JOIN teams t ON i.team_id = t.id
+            LEFT JOIN individual_work_logs wl ON wl.individual_id = i.id AND wl.work_date = CURRENT_DATE
             ORDER BY CASE
                 WHEN LOWER(REPLACE(REPLACE(i.name, '.', ''), ' ', '')) IN ('liyandarrishwanthl', 'liyanderrishwanthl') THEN 0
                 ELSE 1
@@ -277,13 +294,21 @@ app.get('/api/individuals', async (req, res) => {
 app.get('/api/individuals/:id', async (req, res) => {
     try {
         const [rows] = await pool.query(`
-            SELECT i.*, t.name as team_name 
+            SELECT i.*, t.name as team_name, wl.work_text as current_day_work
             FROM individuals i 
             LEFT JOIN teams t ON i.team_id = t.id
+            LEFT JOIN individual_work_logs wl ON wl.individual_id = i.id AND wl.work_date = CURRENT_DATE
             WHERE i.id = ?
         `, [req.params.id]);
         if (rows.length === 0) return res.status(404).json({ error: 'Individual not found' });
-        res.json(rows[0]);
+        const [workTimeline] = await pool.query(`
+            SELECT id, work_date, work_text, created_at, updated_at
+            FROM individual_work_logs
+            WHERE individual_id = ?
+            ORDER BY work_date DESC, id DESC
+            LIMIT 60
+        `, [req.params.id]);
+        res.json({ ...rows[0], work_timeline: workTimeline });
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Server error fetching individual' });
@@ -299,20 +324,28 @@ app.post('/api/upload', upload.single('image'), (req, res) => {
 });
 
 app.post('/api/individuals', async (req, res) => {
-    const { name, role, team_id, department, year_of_study, achievements, certificates, research_work, image } = req.body;
+    const { name, role, team_id, department, year_of_study, daily_work, achievements, certificates, research_work, image } = req.body;
     try {
         const parsedTeamId = team_id && team_id !== '' ? parseInt(team_id, 10) : null;
 
         const [result] = await pool.query(
-            'INSERT INTO individuals (name, role, team_id, department, year_of_study, achievements, certificates, research_work, image) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            'INSERT INTO individuals (name, role, team_id, department, year_of_study, daily_work, achievements, certificates, research_work, image) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             [
-                name, role, parsedTeamId, department, year_of_study, 
+                name, role, parsedTeamId, department, year_of_study, daily_work || '',
                 JSON.stringify(achievements || []), 
                 JSON.stringify(certificates || []), 
                 JSON.stringify(research_work || []),
                 image || ''
             ]
         );
+        if (daily_work) {
+            await pool.query(
+                `INSERT INTO individual_work_logs (individual_id, work_date, work_text)
+                 VALUES (?, CURRENT_DATE, ?)
+                 ON DUPLICATE KEY UPDATE work_text = VALUES(work_text)`,
+                [result.insertId, daily_work]
+            );
+        }
         res.status(201).json({ id: result.insertId, message: 'Individual created successfully' });
     } catch (err) {
         console.error(err);
@@ -321,13 +354,13 @@ app.post('/api/individuals', async (req, res) => {
 });
 
 app.put('/api/individuals/:id', async (req, res) => {
-    const { name, role, team_id, department, year_of_study, achievements, certificates, research_work, image } = req.body;
+    const { name, role, team_id, department, year_of_study, daily_work, achievements, certificates, research_work, image } = req.body;
     try {
         const parsedTeamId = team_id && team_id !== '' ? parseInt(team_id, 10) : null;
         await pool.query(
-            'UPDATE individuals SET name = ?, role = ?, team_id = ?, department = ?, year_of_study = ?, achievements = ?, certificates = ?, research_work = ?, image = ? WHERE id = ?',
+            'UPDATE individuals SET name = ?, role = ?, team_id = ?, department = ?, year_of_study = ?, daily_work = ?, achievements = ?, certificates = ?, research_work = ?, image = ? WHERE id = ?',
             [
-                name, role, parsedTeamId, department, year_of_study, 
+                name, role, parsedTeamId, department, year_of_study, daily_work || '',
                 JSON.stringify(achievements || []), 
                 JSON.stringify(certificates || []), 
                 JSON.stringify(research_work || []), 
@@ -335,10 +368,39 @@ app.put('/api/individuals/:id', async (req, res) => {
                 req.params.id
             ]
         );
+        if (daily_work) {
+            await pool.query(
+                `INSERT INTO individual_work_logs (individual_id, work_date, work_text)
+                 VALUES (?, CURRENT_DATE, ?)
+                 ON DUPLICATE KEY UPDATE work_text = VALUES(work_text)`,
+                [req.params.id, daily_work]
+            );
+        }
         res.json({ message: 'Individual updated successfully' });
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Server error updating individual' });
+    }
+});
+
+app.patch('/api/individuals/:id/daily-work', async (req, res) => {
+    const { daily_work, work_date } = req.body;
+    try {
+        const targetDate = work_date || null;
+        await pool.query(
+            'UPDATE individuals SET daily_work = ? WHERE id = ?',
+            [daily_work || '', req.params.id]
+        );
+        await pool.query(
+            `INSERT INTO individual_work_logs (individual_id, work_date, work_text)
+             VALUES (?, COALESCE(?, CURRENT_DATE), ?)
+             ON DUPLICATE KEY UPDATE work_text = VALUES(work_text)`,
+            [req.params.id, targetDate, daily_work || '']
+        );
+        res.json({ message: 'Current day work stored successfully' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error updating daily work' });
     }
 });
 
@@ -589,6 +651,7 @@ app.get('/api/admin/attendance', async (req, res) => {
             FROM users u
             LEFT JOIN attendance a ON u.id = a.user_id
             GROUP BY u.id, u.username
+            ORDER BY u.id ASC
         `);
         
         const attendanceData = rows.map(r => ({
@@ -691,11 +754,6 @@ app.post("/api/user/login", async (req, res) => {
         const user = rows[0];
         const match = await bcrypt.compare(password, user.password);
         if (!match) return res.status(401).json({ success: false, message: "Invalid credentials" });
-
-        if (req.body.markAttendanceOnly === true) {
-            const attendanceResult = await markAttendance(user.id, user.username);
-            return res.json(attendanceResult);
-        }
 
         if (!user.has_2fa_enabled) {
             // Initiate 2FA setup

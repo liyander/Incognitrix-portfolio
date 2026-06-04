@@ -89,6 +89,14 @@ function IndividualProfile({ individualId, projects, onNavigateToProject, onNavi
   try { certificates = typeof individual.certificates === 'string' ? JSON.parse(individual.certificates) : individual.certificates || []; } catch(e){}
   let research_work = [];
   try { research_work = typeof individual.research_work === 'string' ? JSON.parse(individual.research_work) : individual.research_work || []; } catch(e){}
+  const workTimeline = Array.isArray(individual.work_timeline) ? individual.work_timeline : [];
+  const currentDayWork = individual.current_day_work || individual.daily_work || '';
+  const formatWorkDate = (value) => {
+    if (!value) return 'NO_DATE';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value).slice(0, 10);
+    return date.toLocaleDateString('en-CA');
+  };
 
   const nameParts = individual.name.split(' ');
   const lastName = nameParts.length > 1 ? nameParts.pop() : '';
@@ -188,6 +196,12 @@ function IndividualProfile({ individualId, projects, onNavigateToProject, onNavi
                       Specialist operative currently assigned to team <span onClick={onNavigateToTeam} className="text-primary cursor-pointer hover:underline underline-offset-2">{individual.team_name || 'UNASSIGNED'}</span>. 
                     Assigned duties focus on {individual.role}. Clearance status determined by sector engagement.
                   </p>
+                  <div className="mb-8 bg-surface-container-low border border-outline-variant/20 p-4">
+                    <p className="font-label text-[10px] text-primary tracking-widest uppercase mb-2">Current Day Work</p>
+                    <p className="font-body text-sm text-on-surface-variant leading-relaxed">
+                      {currentDayWork || 'No work update recorded for today.'}
+                    </p>
+                  </div>
                 </div>
                 
                 {/* Key Metrics */}
@@ -315,31 +329,30 @@ function IndividualProfile({ individualId, projects, onNavigateToProject, onNavi
 
           </div>
 
-          {/* Terminal Log / Activity Feed */}
+          {/* Work Timeline */}
           <div className="xl:col-span-4 h-[600px] xl:h-auto xl:sticky xl:top-8 xl:bottom-0 bg-surface-container-lowest border border-outline-variant/20 flex flex-col min-h-[500px]">
             <div className="bg-surface-bright px-4 py-3 border-b border-outline-variant/20 flex items-center gap-3">
               <span className="material-symbols-outlined text-[16px] text-on-surface-variant">terminal</span>
-              <span className="font-label text-xs text-on-surface-variant tracking-widest uppercase">SYS_LOG :: OP-{individual.id}</span>
+              <span className="font-label text-xs text-on-surface-variant tracking-widest uppercase">WORK_TIMELINE :: OP-{individual.id}</span>
             </div>
             <div className="flex-1 p-4 overflow-y-auto terminal-scroll font-label text-[11px] leading-relaxed text-on-surface-variant opacity-80 flex flex-col gap-3">
+              {workTimeline.length === 0 ? (
+                <div className="flex gap-4">
+                  <span className="text-outline shrink-0">NO_LOG</span>
+                  <span>&gt; No daily work timeline stored yet.</span>
+                </div>
+              ) : (
+                workTimeline.map((log) => (
+                  <div key={log.id || `${log.work_date}-${log.work_text}`} className="flex gap-4 items-start border-b border-outline-variant/10 pb-3 last:border-b-0">
+                    <span className="text-outline shrink-0">{formatWorkDate(log.work_date)}</span>
+                    <span className="text-on-surface-variant">
+                      <span className={log.work_text === currentDayWork ? 'text-primary' : 'text-secondary'}>&gt; WORK_LOG:</span> {log.work_text}
+                    </span>
+                  </div>
+                ))
+              )}
               <div className="flex gap-4">
-                <span className="text-outline shrink-0">14:02:11</span>
-                <span className="text-primary">&gt; AUTH_SUCCESS: ENCLAVE_BETA</span>
-              </div>
-              <div className="flex gap-4">
-                <span className="text-outline shrink-0">14:05:43</span>
-                <span>&gt; UPLOADING_PAYLOAD: metadata_v2.bin</span>
-              </div>
-              <div className="flex gap-4">
-                <span className="text-outline shrink-0">14:06:01</span>
-                <span className="text-secondary">&gt; CHECKSUM_VERIFIED</span>
-              </div>
-              <div className="flex gap-4">
-                <span className="text-outline shrink-0">16:40:00</span>
-                <span>&gt; SESSION_IDLE</span>
-              </div>
-              <div className="flex gap-4">
-                <span className="text-outline shrink-0">**:**:**</span>
+                <span className="text-outline shrink-0">TODAY</span>
                 <span className="animate-pulse">_</span>
               </div>
             </div>

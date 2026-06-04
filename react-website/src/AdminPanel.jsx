@@ -20,6 +20,8 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
   const [cves, setCves] = useState([]);
   const [achievements, setAchievements] = useState([]);
   const [attendanceStats, setAttendanceStats] = useState([]);
+  const [selectedIndividual, setSelectedIndividual] = useState(null);
+  const [selectedIndividualLoading, setSelectedIndividualLoading] = useState(false);
 
   // Form States
   const [formData, setFormData] = useState({
@@ -31,7 +33,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
   const [teamFormData, setTeamFormData] = useState({ name: '', description: '', technical_summary: '', current_objective: '' });
   
   const [individualFormData, setIndividualFormData] = useState({
-    name: '', role: '', team_id: '', department: '', year_of_study: '', image: '',
+    name: '', role: '', team_id: '', department: '', year_of_study: '', daily_work: '', image: '',
     achievements: [], certificates: [], research_work: []
   });
 
@@ -154,6 +156,32 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
 
   const handleIndividualChange = (e) => {
     setIndividualFormData({ ...individualFormData, [e.target.name]: e.target.value });
+  };
+
+  const getCurrentDayWork = (ind) => {
+    if (ind.current_day_work) return ind.current_day_work;
+    if (ind.daily_work) return ind.daily_work;
+    return '';
+  };
+
+  const parseJsonArray = (value) => {
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string') {
+      try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (e) {
+        return [];
+      }
+    }
+    return [];
+  };
+
+  const formatWorkDate = (value) => {
+    if (!value) return 'NO_DATE';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value).slice(0, 10);
+    return date.toLocaleDateString('en-CA');
   };
 
   const handleImageUpload = async (e) => {
@@ -304,6 +332,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
 
     setIndividualFormData({
       ...ind,
+      daily_work: ind.daily_work || '',
       team_id: ind.team_id || '',
       achievements: ach,
       certificates: certs,
@@ -311,6 +340,30 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
     });
     setEditingId(ind.id);
     setActiveAdminView('add-individual');
+  };
+
+  const handleViewIndividual = async (ind) => {
+    setSelectedIndividualLoading(true);
+    setSelectedIndividual(null);
+    setActiveAdminView('individual-detail');
+
+    try {
+      const response = await fetch(`${INDIVIDUALS_API_URL}/${ind.id}`);
+      if (!response.ok) {
+        alert('Failed to load individual details.');
+        setActiveAdminView('individuals-list');
+        return;
+      }
+
+      const data = await response.json();
+      setSelectedIndividual(data);
+    } catch (err) {
+      console.error('Failed to load individual details', err);
+      alert('Failed to load individual details. Check console.');
+      setActiveAdminView('individuals-list');
+    } finally {
+      setSelectedIndividualLoading(false);
+    }
   };
 
   const handleIndividualSubmit = async (e) => {
@@ -325,7 +378,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
       fetchIndividuals();
       alert(`Individual ${editingId ? 'Updated' : 'Added'} Successfully!`);
       setIndividualFormData({
-        name: '', role: '', team_id: '', department: '', year_of_study: '', image: '',
+        name: '', role: '', team_id: '', department: '', year_of_study: '', daily_work: '', image: '',
         achievements: [], certificates: [], research_work: []
       });
       setEditingId(null);
@@ -340,8 +393,46 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
     try {
       await fetch(`${INDIVIDUALS_API_URL}/${id}`, { method: 'DELETE' });
       fetchIndividuals();
+      if (selectedIndividual?.id === id) {
+        setSelectedIndividual(null);
+        setActiveAdminView('individuals-list');
+      }
     } catch (err) {
       console.error('Failed to delete individual', err);
+    }
+  };
+
+  const handleDailyWorkDraftChange = (id, value) => {
+    setIndividuals(prev => prev.map(ind => (
+      ind.id === id ? { ...ind, current_day_work: value, daily_work: value } : ind
+    )));
+  };
+
+  const handleSelectedDailyWorkChange = (value) => {
+    setSelectedIndividual(prev => prev ? { ...prev, current_day_work: value, daily_work: value } : prev);
+  };
+
+  const handleUpdateDailyWork = async (ind) => {
+    try {
+      const response = await fetch(`${INDIVIDUALS_API_URL}/${ind.id}/daily-work`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ daily_work: getCurrentDayWork(ind) })
+      });
+
+      if (!response.ok) {
+        alert('Failed to update daily work.');
+        return;
+      }
+
+      fetchIndividuals();
+      if (selectedIndividual?.id === ind.id) {
+        handleViewIndividual(ind);
+      }
+      alert(`Current day work stored for ${ind.name}.`);
+    } catch (err) {
+      console.error('Failed to update daily work', err);
+      alert('Failed to update daily work. Check console.');
     }
   };
 
@@ -567,6 +658,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
         {activeAdminView === 'dashboard' && "Manage portal contents, threat intel statuses, and active directives."}
         {activeAdminView === 'projects-list' && "Manage your project listings. Actions are logged."}
         {activeAdminView === 'add-project' && "Initialize a new project operation into the master database."}
+        {activeAdminView === 'individual-detail' && "Inspect individual details, current work, and stored daily work timeline."}
       </p>
 
       {/* DASHBOARD VIEW */}
@@ -1049,7 +1141,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
             <button 
               onClick={() => {
                 setIndividualFormData({
-                  name: '', role: '', team_id: '', department: '', year_of_study: '', image: '',
+                  name: '', role: '', team_id: '', department: '', year_of_study: '', daily_work: '', image: '',
                   achievements: [], certificates: [], research_work: []
                 });
                 setEditingId(null);
@@ -1069,11 +1161,19 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
               </div>
             ) : (
               individuals.map(ind => (
-                <div key={ind.id} className="bg-background border border-outline/20 p-5 rounded flex lg:items-center justify-between flex-col lg:flex-row gap-4 hover:border-primary/50 transition-colors">
-                  <div className="flex flex-col gap-1">
+                <div
+                  key={ind.id}
+                  onClick={() => handleViewIndividual(ind)}
+                  className="bg-background border border-outline/20 p-5 rounded flex flex-col gap-4 hover:border-primary/50 transition-colors cursor-pointer"
+                >
+                  <div className="flex lg:items-start justify-between flex-col lg:flex-row gap-4">
+                  <div className="flex flex-col gap-1 min-w-0">
                     <div className="font-mono text-xs font-bold text-primary-container bg-primary-container/10 w-fit px-2 py-0.5 rounded tracking-widest">{ind.role || 'OPERATIVE'} / {ind.department || 'NO DEPT'}</div>
                     <div className="font-headline text-xl font-bold">{ind.name}</div>
                     <div className="font-mono text-xs text-outline">Team: {ind.team_name || 'UNASSIGNED'}</div>
+                    <div className="font-mono text-xs text-on-surface-variant mt-2 max-w-3xl">
+                      <span className="text-primary uppercase">Current Day Work:</span> {getCurrentDayWork(ind) || 'No work update recorded for today.'}
+                    </div>
                   </div>
                   <div className="flex items-center gap-2 mt-4 lg:mt-0 sm:gap-6">
                     <div className="text-right hidden sm:block">
@@ -1081,24 +1181,234 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                       <div className="font-mono text-xs text-on-surface uppercase">{ind.year_of_study || 'N/A'}</div>
                     </div>
                     <button 
-                      onClick={() => handleEditIndividual(ind)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleEditIndividual(ind);
+                      }}
                       className="text-primary hover:bg-primary/10 px-4 py-2 rounded transition-colors font-mono text-xs flex items-center gap-2 border border-primary/20"
                     >
                       <span className="material-symbols-outlined text-sm">edit</span>
                       EDIT
                     </button>
                     <button 
-                      onClick={() => handleDeleteIndividual(ind.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteIndividual(ind.id);
+                      }}
                       className="text-error hover:bg-error/10 px-4 py-2 rounded transition-colors font-mono text-xs flex items-center gap-2 border border-error/20"
                     >
                       <span className="material-symbols-outlined text-sm">delete</span>
                       DELETE
                     </button>
                   </div>
+                  </div>
+                  <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-3 border-t border-outline/10 pt-4">
+                    <textarea
+                      value={getCurrentDayWork(ind)}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => handleDailyWorkDraftChange(ind.id, e.target.value)}
+                      rows="2"
+                      className="w-full bg-surface-container-low border border-outline/30 rounded p-2.5 text-on-surface focus:border-primary focus:outline-none transition-colors font-mono text-xs"
+                      placeholder="Update current day work for this individual..."
+                    />
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleUpdateDailyWork(ind);
+                      }}
+                      className="text-primary hover:bg-primary/10 px-4 py-2 rounded transition-colors font-mono text-xs flex items-center justify-center gap-2 border border-primary/20"
+                    >
+                      <span className="material-symbols-outlined text-sm">save</span>
+                      SAVE WORK
+                    </button>
+                  </div>
                 </div>
               ))
             )}
           </div>
+        </div>
+      )}
+
+      {/* INDIVIDUAL DETAIL VIEW */}
+      {activeAdminView === 'individual-detail' && (
+        <div className="flex flex-col gap-6">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-surface-container/50 p-6 rounded border ghost-border">
+            <div>
+              <h2 className="font-headline text-2xl font-bold text-on-surface">Individual Work File</h2>
+              <p className="font-mono text-xs text-outline mt-1">Profile details and dated work timeline</p>
+            </div>
+            <button
+              onClick={() => {
+                setSelectedIndividual(null);
+                setActiveAdminView('individuals-list');
+              }}
+              className="text-outline hover:text-on-surface text-sm font-mono transition-colors flex items-center gap-2"
+            >
+              <span className="material-symbols-outlined text-sm">arrow_back</span>
+              BACK TO INDIVIDUALS
+            </button>
+          </div>
+
+          {selectedIndividualLoading ? (
+            <div className="bg-surface-container-low p-8 text-center rounded border border-outline/20">
+              <p className="text-primary font-mono text-sm">LOADING INDIVIDUAL FILE...</p>
+            </div>
+          ) : !selectedIndividual ? (
+            <div className="bg-surface-container-low p-8 text-center rounded border border-outline/20">
+              <p className="text-error font-mono text-sm">Individual file not available.</p>
+            </div>
+          ) : (() => {
+            const detailAchievements = parseJsonArray(selectedIndividual.achievements);
+            const detailCertificates = parseJsonArray(selectedIndividual.certificates);
+            const detailResearch = parseJsonArray(selectedIndividual.research_work);
+            const workTimeline = Array.isArray(selectedIndividual.work_timeline) ? selectedIndividual.work_timeline : [];
+
+            return (
+              <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+                <section className="xl:col-span-5 bg-background border border-outline/20 rounded p-6 flex flex-col gap-5">
+                  <div className="flex items-start gap-5">
+                    <div className="w-24 h-24 bg-surface-container-low border border-outline/20 rounded overflow-hidden flex items-center justify-center shrink-0">
+                      {selectedIndividual.image ? (
+                        <img src={selectedIndividual.image} alt={selectedIndividual.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <span className="material-symbols-outlined text-4xl text-outline">person</span>
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="font-mono text-[10px] text-primary tracking-widest">OP-{String(selectedIndividual.id).padStart(4, '0')}</div>
+                      <h3 className="font-headline text-3xl font-bold text-on-surface break-words">{selectedIndividual.name}</h3>
+                      <p className="font-mono text-xs text-outline uppercase mt-1">{selectedIndividual.role || 'OPERATIVE'}</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 font-mono text-xs">
+                    <div className="bg-surface-container-low border border-outline/10 p-3 rounded">
+                      <div className="text-outline text-[10px] uppercase mb-1">Team</div>
+                      <div className="text-on-surface">{selectedIndividual.team_name || 'UNASSIGNED'}</div>
+                    </div>
+                    <div className="bg-surface-container-low border border-outline/10 p-3 rounded">
+                      <div className="text-outline text-[10px] uppercase mb-1">Department</div>
+                      <div className="text-on-surface">{selectedIndividual.department || 'NO DEPT'}</div>
+                    </div>
+                    <div className="bg-surface-container-low border border-outline/10 p-3 rounded">
+                      <div className="text-outline text-[10px] uppercase mb-1">Year / Experience</div>
+                      <div className="text-on-surface">{selectedIndividual.year_of_study || 'N/A'}</div>
+                    </div>
+                    <div className="bg-surface-container-low border border-outline/10 p-3 rounded">
+                      <div className="text-outline text-[10px] uppercase mb-1">Records</div>
+                      <div className="text-on-surface">{detailAchievements.length} achievements / {detailCertificates.length} certs</div>
+                    </div>
+                  </div>
+
+                  <div className="border-t border-outline/10 pt-5">
+                    <label className="text-outline block mb-2 font-mono text-xs uppercase">Current Day Work</label>
+                    <textarea
+                      value={getCurrentDayWork(selectedIndividual)}
+                      onChange={(e) => handleSelectedDailyWorkChange(e.target.value)}
+                      rows="4"
+                      className="w-full bg-surface-container-low border border-outline/30 rounded p-3 text-on-surface focus:border-primary focus:outline-none transition-colors font-mono text-xs"
+                      placeholder="Update current day work..."
+                    />
+                    <button
+                      onClick={() => handleUpdateDailyWork(selectedIndividual)}
+                      className="mt-3 text-primary hover:bg-primary/10 px-4 py-2 rounded transition-colors font-mono text-xs flex items-center gap-2 border border-primary/20"
+                    >
+                      <span className="material-symbols-outlined text-sm">save</span>
+                      SAVE CURRENT WORK
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap gap-3 border-t border-outline/10 pt-5">
+                    <button
+                      onClick={() => handleEditIndividual(selectedIndividual)}
+                      className="text-primary hover:bg-primary/10 px-4 py-2 rounded transition-colors font-mono text-xs flex items-center gap-2 border border-primary/20"
+                    >
+                      <span className="material-symbols-outlined text-sm">edit</span>
+                      EDIT DETAILS
+                    </button>
+                    <button
+                      onClick={() => handleDeleteIndividual(selectedIndividual.id)}
+                      className="text-error hover:bg-error/10 px-4 py-2 rounded transition-colors font-mono text-xs flex items-center gap-2 border border-error/20"
+                    >
+                      <span className="material-symbols-outlined text-sm">delete</span>
+                      DELETE INDIVIDUAL
+                    </button>
+                  </div>
+                </section>
+
+                <section className="xl:col-span-7 bg-surface-container-lowest border border-outline/20 rounded overflow-hidden flex flex-col min-h-[520px]">
+                  <div className="bg-surface-bright px-5 py-4 border-b border-outline/20 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <span className="material-symbols-outlined text-[18px] text-primary">terminal</span>
+                      <span className="font-mono text-xs text-on-surface-variant tracking-widest uppercase">WORK_TIMELINE :: OP-{selectedIndividual.id}</span>
+                    </div>
+                    <span className="font-mono text-[10px] text-outline">{workTimeline.length} LOGS</span>
+                  </div>
+
+                  <div className="flex-1 p-5 overflow-y-auto terminal-scroll font-mono text-xs leading-relaxed text-on-surface-variant flex flex-col gap-4">
+                    {workTimeline.length === 0 ? (
+                      <div className="flex gap-4">
+                        <span className="text-outline shrink-0">NO_LOG</span>
+                        <span>&gt; No daily work history stored yet.</span>
+                      </div>
+                    ) : (
+                      workTimeline.map(log => (
+                        <div key={log.id || `${log.work_date}-${log.work_text}`} className="border-l-2 border-primary/30 pl-4 pb-4">
+                          <div className="flex flex-wrap items-center gap-3 mb-2">
+                            <span className="text-primary">{formatWorkDate(log.work_date)}</span>
+                            <span className="text-outline text-[10px]">UPDATED {formatWorkDate(log.updated_at)}</span>
+                          </div>
+                          <p className="text-on-surface-variant whitespace-pre-wrap">&gt; {log.work_text}</p>
+                        </div>
+                      ))
+                    )}
+                    <div className="flex gap-4">
+                      <span className="text-outline shrink-0">TODAY</span>
+                      <span className="animate-pulse">_</span>
+                    </div>
+                  </div>
+                </section>
+
+                {(detailAchievements.length > 0 || detailCertificates.length > 0 || detailResearch.length > 0) && (
+                  <section className="xl:col-span-12 grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div className="bg-background border border-outline/20 rounded p-5">
+                      <h4 className="font-headline text-lg font-bold text-primary mb-4">Achievements</h4>
+                      <div className="space-y-3">
+                        {detailAchievements.length === 0 ? <p className="font-mono text-xs text-outline">No achievements recorded.</p> : detailAchievements.slice(0, 6).map((item, idx) => (
+                          <div key={idx} className="border-b border-outline/10 pb-3 last:border-b-0">
+                            <div className="font-mono text-xs text-on-surface">{item.title || item.name || 'Achievement'}</div>
+                            <div className="font-mono text-[10px] text-outline mt-1">{item.date || 'NO DATE'}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="bg-background border border-outline/20 rounded p-5">
+                      <h4 className="font-headline text-lg font-bold text-primary mb-4">Certificates</h4>
+                      <div className="space-y-3">
+                        {detailCertificates.length === 0 ? <p className="font-mono text-xs text-outline">No certificates recorded.</p> : detailCertificates.slice(0, 6).map((item, idx) => (
+                          <div key={idx} className="border-b border-outline/10 pb-3 last:border-b-0">
+                            <div className="font-mono text-xs text-on-surface">{item.title || item.name || 'Certificate'}</div>
+                            <div className="font-mono text-[10px] text-outline mt-1">{item.issued_by || item.issuer || 'NO ISSUER'}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="bg-background border border-outline/20 rounded p-5">
+                      <h4 className="font-headline text-lg font-bold text-primary mb-4">Research / Work</h4>
+                      <div className="space-y-3">
+                        {detailResearch.length === 0 ? <p className="font-mono text-xs text-outline">No research records.</p> : detailResearch.slice(0, 6).map((item, idx) => (
+                          <div key={idx} className="border-b border-outline/10 pb-3 last:border-b-0">
+                            <div className="font-mono text-xs text-on-surface">{item.title || item.name || 'Research item'}</div>
+                            <div className="font-mono text-[10px] text-outline mt-1">{item.publisher || item.date || 'NO META'}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </section>
+                )}
+              </div>
+            );
+          })()}
         </div>
       )}
 
@@ -1154,6 +1464,18 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                   </div>
                 )}
               </div>
+            </div>
+
+            <div>
+              <label className="text-outline block mb-1">Current Day Work</label>
+              <textarea
+                name="daily_work"
+                value={individualFormData.daily_work || ''}
+                onChange={handleIndividualChange}
+                rows="3"
+                className="w-full bg-background border border-outline/30 rounded p-2.5 text-on-surface focus:border-primary focus:outline-none transition-colors"
+                placeholder="Summarize the individual's current day work..."
+              />
             </div>
 
             <div className="bg-surface-container/30 p-4 rounded border border-outline/10 flex flex-col gap-4">

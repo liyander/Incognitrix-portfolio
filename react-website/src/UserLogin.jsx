@@ -13,11 +13,11 @@ function UserLogin({ onLogin }) {
   const [qrCode, setQrCode] = useState("");
   const [attendanceMessage, setAttendanceMessage] = useState("");
 
-  const login = async (markAttendanceOnly = false) => {
+  const login = async () => {
     const response = await fetch("/api/user/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password, markAttendanceOnly }),
+      body: JSON.stringify({ username, password }),
     });
     return response.json();
   };
@@ -28,31 +28,13 @@ function UserLogin({ onLogin }) {
     setError("");
 
     try {
-      const data = await login(false);
+      const data = await login();
       if (data.success && data.requires2FA) {
         setIsFirstTime(data.isFirstTime);
         if (data.qr) setQrCode(data.qr);
         setStep(2);
       } else {
         setError(data.message || "Login failed");
-      }
-    } catch (err) {
-      setError("Cannot connect to server. Ensure backend is running.");
-      console.error(err);
-    }
-    setLoading(false);
-  };
-
-  const handleQuickAttendance = async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const data = await login(true);
-      if (data.success && data.attendanceRecorded !== undefined) {
-        setAttendanceMessage(data.message);
-        setStep(3);
-      } else {
-        setError(data.message || "Attendance failed");
       }
     } catch (err) {
       setError("Cannot connect to server. Ensure backend is running.");
@@ -143,14 +125,6 @@ function UserLogin({ onLogin }) {
               className="mt-4 bg-primary-container text-on-primary-fixed font-headline font-bold text-sm tracking-widest uppercase py-4 rounded hover:bg-primary transition-colors disabled:opacity-50"
             >
               {loading ? 'AUTHENTICATING...' : 'LOGIN WITH 2FA'}
-            </button>
-            <button
-              type="button"
-              disabled={loading}
-              onClick={handleQuickAttendance}
-              className="bg-surface-lowest text-outline border border-outline-variant font-headline font-bold text-xs tracking-widest uppercase py-3 rounded hover:text-primary hover:border-primary transition-colors disabled:opacity-50"
-            >
-              MARK ATTENDANCE WITHOUT 2FA
             </button>
           </form>
         ) : step === 2 ? (
