@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import AdminPanel from './AdminPanel';
 import Teams from './Teams';
 import CVEs from './CVEs';
+import UpcomingCTFs from './UpcomingCTFs';
 import Achievements from './Achievements';
 import Individuals from './Individuals';
 import IndividualProfile from './IndividualProfile';
@@ -16,7 +17,7 @@ function App() {
 
   const [selectedProject, setSelectedProject] = useState(null);
   const [selectedIndividualId, setSelectedIndividualId] = useState(null);
-  const [view, setView] = useState('portal'); // 'portal', 'admin', 'teams', 'cves', 'achievements', 'individuals', 'individual-profile', 'attendance'
+  const [view, setView] = useState('portal'); // 'portal', 'admin', 'teams', 'cves', 'upcoming-ctfs', 'achievements', 'individuals', 'individual-profile', 'attendance'
   const [adminUser, setAdminUser] = useState(null);
   const [dbProjects, setDbProjects] = useState([]);
   const [individuals, setIndividuals] = useState([]);
@@ -486,6 +487,12 @@ function App() {
               CVES
             </button>
             <button 
+              onClick={() => { setView('upcoming-ctfs'); setSelectedProject(null); }}
+              className={`font-mono text-xs tracking-widest mr-4 pb-1 transition-colors ${view === 'upcoming-ctfs' ? 'text-primary-container border-b-2 border-primary-container' : 'text-outline hover:text-primary-container'}`}
+            >
+              CTFS
+            </button>
+            <button 
               onClick={() => { setView('attendance'); setSelectedProject(null); }}
               className={`font-mono text-xs tracking-widest mr-4 pb-1 transition-colors ${view === 'attendance' ? 'text-primary-container border-b-2 border-primary-container' : 'text-outline hover:text-primary-container'}`}
             >
@@ -510,7 +517,7 @@ function App() {
           )
         ) : view === 'attendance' ? (
           <UserLogin onLogin={() => setView('portal')} />
-        ) : view === 'dashboard' ? <Dashboard useDatabase={useDatabase} /> : view === 'teams' ? <Teams useDatabase={useDatabase} onSelectProject={(p) => { setSelectedProject(p); setView('portal'); }} onSelectIndividual={(id) => { setSelectedIndividualId(id); setView('individual-profile'); }} /> : view === 'individuals' ? <Individuals useDatabase={useDatabase} onSelectIndividual={(id) => { setSelectedIndividualId(id); setView('individual-profile'); }} /> : view === 'individual-profile' ? <IndividualProfile useDatabase={useDatabase} individualId={selectedIndividualId} projects={projects} onNavigateToProject={(p) => { setSelectedProject(p); setView('portal'); }} onNavigateToTeam={() => setView('teams')} onBack={() => { setView('individuals'); setSelectedIndividualId(null); }} /> : view === 'cves' ? <CVEs useDatabase={useDatabase} /> : view === 'achievements' ? <Achievements useDatabase={useDatabase} /> : (selectedProject ? renderProductDetails(selectedProject) : renderProductList())}
+        ) : view === 'dashboard' ? <Dashboard useDatabase={useDatabase} /> : view === 'teams' ? <Teams useDatabase={useDatabase} onSelectProject={(p) => { setSelectedProject(p); setView('portal'); }} onSelectIndividual={(id) => { setSelectedIndividualId(id); setView('individual-profile'); }} /> : view === 'individuals' ? <Individuals useDatabase={useDatabase} onSelectIndividual={(id) => { setSelectedIndividualId(id); setView('individual-profile'); }} /> : view === 'individual-profile' ? <IndividualProfile useDatabase={useDatabase} individualId={selectedIndividualId} projects={projects} onNavigateToProject={(p) => { setSelectedProject(p); setView('portal'); }} onNavigateToTeam={() => setView('teams')} onBack={() => { setView('individuals'); setSelectedIndividualId(null); }} /> : view === 'cves' ? <CVEs useDatabase={useDatabase} /> : view === 'upcoming-ctfs' ? <UpcomingCTFs /> : view === 'achievements' ? <Achievements useDatabase={useDatabase} /> : (selectedProject ? renderProductDetails(selectedProject) : renderProductList())}
       </main>
 
       {/* Special Alive Effects Overlay */}

@@ -51,6 +51,35 @@ CREATE TABLE IF NOT EXISTS individual_work_logs (
     UNIQUE KEY individual_work_date (individual_id, work_date)
 );
 
+CREATE TABLE IF NOT EXISTS upcoming_ctfs (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    url TEXT,
+    start_time DATETIME,
+    end_time DATETIME,
+    format VARCHAR(255),
+    location VARCHAR(255),
+    description TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS attendance_holidays (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    holiday_date DATE NOT NULL UNIQUE,
+    title VARCHAR(255) NOT NULL,
+    holiday_type VARCHAR(100) DEFAULT 'Institute Holiday',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS attendance_od (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id VARCHAR(255) NOT NULL,
+    od_date DATE NOT NULL,
+    reason TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY user_od_date (user_id, od_date)
+);
+
 CREATE TABLE IF NOT EXISTS projects (
     id VARCHAR(255) PRIMARY KEY,
     title VARCHAR(255) NOT NULL,
@@ -104,6 +133,7 @@ TRUNCATE TABLE achievements;
 TRUNCATE TABLE cves;
 TRUNCATE TABLE projects;
 TRUNCATE TABLE individual_work_logs;
+TRUNCATE TABLE upcoming_ctfs;
 TRUNCATE TABLE individuals;
 TRUNCATE TABLE teams;
 SET FOREIGN_KEY_CHECKS = 1;

@@ -22,6 +22,8 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      args:
+        NODE_IMAGE: ${NODE_IMAGE:-node:20-alpine}
     restart: always
     depends_on:
       db:
@@ -41,6 +43,8 @@ services:
     build:
       context: ./react-website
       dockerfile: Dockerfile
+      args:
+        NODE_IMAGE: ${NODE_IMAGE:-node:20-alpine}
     restart: always
     environment:
       - VITE_BACKEND_URL=http://backend:1337

@@ -107,6 +107,38 @@ async function ensureRuntimeSchema() {
                 UNIQUE KEY individual_work_date (individual_id, work_date)
             )
         `);
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS upcoming_ctfs (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                title VARCHAR(255) NOT NULL,
+                url TEXT,
+                start_time DATETIME,
+                end_time DATETIME,
+                format VARCHAR(255),
+                location VARCHAR(255),
+                description TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS attendance_holidays (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                holiday_date DATE NOT NULL UNIQUE,
+                title VARCHAR(255) NOT NULL,
+                holiday_type VARCHAR(100) DEFAULT 'Institute Holiday',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS attendance_od (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id VARCHAR(255) NOT NULL,
+                od_date DATE NOT NULL,
+                reason TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY user_od_date (user_id, od_date)
+            )
+        `);
     } catch (err) {
         console.error('Runtime schema migration failed:', err);
     }
@@ -414,6 +446,91 @@ app.delete('/api/individuals/:id', async (req, res) => {
     }
 });
 
+// -----------------------------------------
+// UPCOMING CTF ROUTES
+// -----------------------------------------
+const mapCtftimeEvent = (event) => ({
+    source: 'ctftime',
+    id: `ctftime-${event.id}`,
+    title: event.title,
+    url: event.url || event.ctftime_url || '',
+    start_time: event.start,
+    end_time: event.finish,
+    format: event.format || 'CTF',
+    location: event.location || 'Online',
+    description: event.description || ''
+});
+
+app.get('/api/upcoming-ctfs', async (req, res) => {
+    try {
+        const [manualRows] = await pool.query(`
+            SELECT 'manual' as source, id, title, url, start_time, end_time, format, location, description
+            FROM upcoming_ctfs
+            WHERE start_time IS NULL OR end_time IS NULL OR end_time >= NOW()
+            ORDER BY COALESCE(start_time, NOW()) ASC, id DESC
+        `);
+
+        let ctftimeEvents = [];
+        try {
+            const now = Math.floor(Date.now() / 1000);
+            const response = await fetch(`https://ctftime.org/api/v1/events/?limit=20&start=${now}`, {
+                headers: {
+                    'User-Agent': 'Incognitrix-Lab-Dashboard/1.0'
+                }
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                ctftimeEvents = Array.isArray(data) ? data.map(mapCtftimeEvent) : [];
+            }
+        } catch (ctftimeErr) {
+            console.error('CTFTIME fetch failed:', ctftimeErr.message);
+        }
+
+        const combined = [...manualRows, ...ctftimeEvents].sort((a, b) => {
+            const aTime = a.start_time ? new Date(a.start_time).getTime() : Number.MAX_SAFE_INTEGER;
+            const bTime = b.start_time ? new Date(b.start_time).getTime() : Number.MAX_SAFE_INTEGER;
+            return aTime - bTime;
+        });
+
+        res.json(combined);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error fetching upcoming CTFs' });
+    }
+});
+
+app.post('/api/upcoming-ctfs', async (req, res) => {
+    const { title, url, start_time, end_time, format, location, description } = req.body;
+    const normalizeDateTime = (value) => value ? String(value).replace('T', ' ') : null;
+
+    if (!title) {
+        return res.status(400).json({ error: 'CTF title is required' });
+    }
+
+    try {
+        const [result] = await pool.query(
+            'INSERT INTO upcoming_ctfs (title, url, start_time, end_time, format, location, description) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [title, url || '', normalizeDateTime(start_time), normalizeDateTime(end_time), format || 'Jeopardy', location || 'Online', description || '']
+        );
+        res.status(201).json({ id: result.insertId, message: 'Upcoming CTF added successfully' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error adding upcoming CTF' });
+    }
+});
+
+app.delete('/api/upcoming-ctfs/:id', async (req, res) => {
+    try {
+        const [result] = await pool.query('DELETE FROM upcoming_ctfs WHERE id = ?', [req.params.id]);
+        if (result.affectedRows === 0) return res.status(404).json({ error: 'Manual CTF not found' });
+        res.json({ message: 'Upcoming CTF deleted successfully' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error deleting upcoming CTF' });
+    }
+});
+
 app.get('/api/cves', async (req, res) => {
     try {
         const [rows] = await pool.query('SELECT * FROM cves');
@@ -639,32 +756,162 @@ app.post('/api/admin/change-password', async (req, res) => {
     }
 });
 
+const toDateKey = (value) => {
+    if (!value) return null;
+    if (value instanceof Date) return value.toISOString().slice(0, 10);
+    return String(value).slice(0, 10);
+};
+
+const isFirstOrThirdSaturday = (date) => {
+    if (date.getDay() !== 6) return false;
+    const day = date.getDate();
+    return day <= 7 || (day >= 15 && day <= 21);
+};
+
+const getDateRange = (startKey, endKey) => {
+    const dates = [];
+    const cursor = new Date(`${startKey}T00:00:00`);
+    const end = new Date(`${endKey}T00:00:00`);
+    while (cursor <= end) {
+        dates.push(new Date(cursor));
+        cursor.setDate(cursor.getDate() + 1);
+    }
+    return dates;
+};
+
 // Admin Get Attendance
 app.get('/api/admin/attendance', async (req, res) => {
     try {
-        const [totalDaysRow] = await pool.query('SELECT DATEDIFF(CURRENT_DATE, MIN(attendance_date)) + 1 as totalEvents FROM attendance');
-        let totalEvents = totalDaysRow[0].totalEvents || 1; 
-        if (totalEvents <= 0) totalEvents = 1;
+        const todayKey = new Date().toISOString().slice(0, 10);
+        const [minRows] = await pool.query('SELECT MIN(attendance_date) as minDate FROM attendance');
+        const minDateKey = toDateKey(minRows[0]?.minDate) || todayKey;
 
-        const [rows] = await pool.query(`
-            SELECT u.id, u.username, COUNT(a.id) as attended_days
-            FROM users u
-            LEFT JOIN attendance a ON u.id = a.user_id
-            GROUP BY u.id, u.username
-            ORDER BY u.id ASC
-        `);
-        
-        const attendanceData = rows.map(r => ({
-            id: r.id,
-            username: r.username,
-            attended_days: r.attended_days,
-            percentage: Math.round((r.attended_days / totalEvents) * 100)
-        }));
-        
+        const [holidayRows] = await pool.query(
+            'SELECT * FROM attendance_holidays WHERE holiday_date BETWEEN ? AND ? ORDER BY holiday_date ASC',
+            [minDateKey, todayKey]
+        );
+        const holidayDates = new Set(holidayRows.map(h => toDateKey(h.holiday_date)));
+        const workingDateKeys = getDateRange(minDateKey, todayKey)
+            .filter(date => date.getDay() !== 0)
+            .filter(date => !isFirstOrThirdSaturday(date))
+            .map(date => date.toISOString().slice(0, 10))
+            .filter(dateKey => !holidayDates.has(dateKey));
+
+        const workingDateSet = new Set(workingDateKeys);
+        const totalWorkingDays = workingDateKeys.length;
+
+        const [users] = await pool.query('SELECT id, username FROM users ORDER BY id ASC');
+        const [attendanceRows] = await pool.query(
+            'SELECT user_id, attendance_date FROM attendance WHERE attendance_date BETWEEN ? AND ?',
+            [minDateKey, todayKey]
+        );
+        const [odRows] = await pool.query(
+            'SELECT user_id, od_date, reason FROM attendance_od WHERE od_date BETWEEN ? AND ?',
+            [minDateKey, todayKey]
+        );
+
+        const attendanceByUser = new Map();
+        attendanceRows.forEach(row => {
+            const dateKey = toDateKey(row.attendance_date);
+            if (!workingDateSet.has(dateKey)) return;
+            const userKey = String(row.user_id);
+            if (!attendanceByUser.has(userKey)) attendanceByUser.set(userKey, new Set());
+            attendanceByUser.get(userKey).add(dateKey);
+        });
+
+        const odByUser = new Map();
+        odRows.forEach(row => {
+            const dateKey = toDateKey(row.od_date);
+            if (!workingDateSet.has(dateKey)) return;
+            const userKey = String(row.user_id);
+            if (!odByUser.has(userKey)) odByUser.set(userKey, new Set());
+            odByUser.get(userKey).add(dateKey);
+        });
+
+        const attendanceData = users.map(user => {
+            const userKey = String(user.id);
+            const attendedDates = attendanceByUser.get(userKey) || new Set();
+            const odDates = odByUser.get(userKey) || new Set();
+            const excusedOdDays = [...odDates].filter(dateKey => !attendedDates.has(dateKey)).length;
+            const attendedDays = attendedDates.size;
+            const effectivePresent = attendedDays + excusedOdDays;
+            const percentage = totalWorkingDays === 0 ? 100 : Math.round((effectivePresent / totalWorkingDays) * 100);
+
+            return {
+                id: user.id,
+                username: user.username,
+                attended_days: attendedDays,
+                od_days: excusedOdDays,
+                working_days: totalWorkingDays,
+                percentage
+            };
+        });
+
         res.json(attendanceData);
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Server error fetching attendance' });
+    }
+});
+
+app.get('/api/admin/attendance-holidays', async (req, res) => {
+    try {
+        const [rows] = await pool.query('SELECT * FROM attendance_holidays ORDER BY holiday_date DESC');
+        res.json(rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error fetching holidays' });
+    }
+});
+
+app.post('/api/admin/attendance-holidays', async (req, res) => {
+    const { holiday_date, title, holiday_type } = req.body;
+    if (!holiday_date || !title) {
+        return res.status(400).json({ error: 'Holiday date and title are required' });
+    }
+
+    try {
+        await pool.query(
+            `INSERT INTO attendance_holidays (holiday_date, title, holiday_type)
+             VALUES (?, ?, ?)
+             ON DUPLICATE KEY UPDATE title = VALUES(title), holiday_type = VALUES(holiday_type)`,
+            [holiday_date, title, holiday_type || 'Institute Holiday']
+        );
+        res.status(201).json({ message: 'Holiday saved successfully' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error saving holiday' });
+    }
+});
+
+app.delete('/api/admin/attendance-holidays/:id', async (req, res) => {
+    try {
+        const [result] = await pool.query('DELETE FROM attendance_holidays WHERE id = ?', [req.params.id]);
+        if (result.affectedRows === 0) return res.status(404).json({ error: 'Holiday not found' });
+        res.json({ message: 'Holiday deleted successfully' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error deleting holiday' });
+    }
+});
+
+app.post('/api/admin/attendance-od', async (req, res) => {
+    const { user_id, od_date, reason } = req.body;
+    if (!user_id || !od_date) {
+        return res.status(400).json({ error: 'Operative and OD date are required' });
+    }
+
+    try {
+        await pool.query(
+            `INSERT INTO attendance_od (user_id, od_date, reason)
+             VALUES (?, ?, ?)
+             ON DUPLICATE KEY UPDATE reason = VALUES(reason)`,
+            [user_id, od_date, reason || 'On duty']
+        );
+        res.status(201).json({ message: 'OD saved successfully' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error saving OD' });
     }
 });
 

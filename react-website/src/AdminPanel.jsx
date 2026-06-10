@@ -8,6 +8,7 @@ const TEAMS_API_URL = '/api/teams';
 const INDIVIDUALS_API_URL = '/api/individuals';
 const CVES_API_URL = '/api/cves';
 const ACHIEVEMENTS_API_URL = '/api/achievements';
+const UPCOMING_CTFS_API_URL = '/api/upcoming-ctfs';
 
 function AdminPanel({ onBack, adminUser, onLogout }) {
   const [activeAdminView, setActiveAdminView] = useState('dashboard'); // 'dashboard' | 'projects-list' | 'add-project' | 'teams-list' | 'add-team' | 'individuals-list' | 'add-individual' | 'cves-list' | 'add-cve' | 'achievements-list' | 'add-achievement' | 'admin-settings'
@@ -19,7 +20,9 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
   const [individuals, setIndividuals] = useState([]);
   const [cves, setCves] = useState([]);
   const [achievements, setAchievements] = useState([]);
+  const [upcomingCtfs, setUpcomingCtfs] = useState([]);
   const [attendanceStats, setAttendanceStats] = useState([]);
+  const [attendanceHolidays, setAttendanceHolidays] = useState([]);
   const [selectedIndividual, setSelectedIndividual] = useState(null);
   const [selectedIndividualLoading, setSelectedIndividualLoading] = useState(false);
 
@@ -39,6 +42,9 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
 
   const [cveFormData, setCveFormData] = useState({ cve_number: '', details: '', poc: '', reference_link: [''], contributors: [] });
   const [achievementFormData, setAchievementFormData] = useState({ title: '', description: '', reference_link: [''], future_scope: '', contributors: [] });
+  const [ctfFormData, setCtfFormData] = useState({ title: '', url: '', start_time: '', end_time: '', format: 'Jeopardy', location: 'Online', description: '' });
+  const [holidayFormData, setHolidayFormData] = useState({ holiday_date: '', title: '', holiday_type: 'Institute Holiday' });
+  const [odFormData, setOdFormData] = useState({ user_id: '', od_date: '', reason: '' });
 
   const handleSimpleMdeChange = useCallback((value, field, setter, formData) => {
     setter({ ...formData, [field]: value });
@@ -83,8 +89,20 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
     fetchIndividuals();
     fetchCves();
     fetchAchievements();
+    fetchUpcomingCtfs();
     fetchAttendance();
+    fetchAttendanceHolidays();
   }, []);
+
+  const fetchUpcomingCtfs = async () => {
+    try {
+      const response = await fetch(UPCOMING_CTFS_API_URL);
+      const data = await response.json();
+      setUpcomingCtfs(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('Failed to fetch upcoming CTFs', err);
+    }
+  };
 
   const fetchAttendance = async () => {
     try {
@@ -158,6 +176,16 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
     setIndividualFormData({ ...individualFormData, [e.target.name]: e.target.value });
   };
 
+  const fetchAttendanceHolidays = async () => {
+    try {
+      const response = await fetch('/api/admin/attendance-holidays');
+      const data = await response.json();
+      setAttendanceHolidays(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('Failed to fetch attendance holidays', err);
+    }
+  };
+
   const getCurrentDayWork = (ind) => {
     if (ind.current_day_work) return ind.current_day_work;
     if (ind.daily_work) return ind.daily_work;
@@ -210,6 +238,135 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
 
   const handleAchievementChange = (e) => {
     setAchievementFormData({ ...achievementFormData, [e.target.name]: e.target.value });
+  };
+
+  const handleCtfChange = (e) => {
+    setCtfFormData({ ...ctfFormData, [e.target.name]: e.target.value });
+  };
+
+  const handleHolidayChange = (e) => {
+    setHolidayFormData({ ...holidayFormData, [e.target.name]: e.target.value });
+  };
+
+  const handleOdChange = (e) => {
+    setOdFormData({ ...odFormData, [e.target.name]: e.target.value });
+  };
+
+  const handleHolidaySubmit = async (e) => {
+    e.preventDefault();
+
+    try {
+      const response = await fetch('/api/admin/attendance-holidays', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(holidayFormData)
+      });
+
+      if (!response.ok) {
+        alert('Failed to save holiday.');
+        return;
+      }
+
+      setHolidayFormData({ holiday_date: '', title: '', holiday_type: 'Institute Holiday' });
+      fetchAttendanceHolidays();
+      fetchAttendance();
+      alert('Holiday saved. Attendance percentages recalculated.');
+    } catch (err) {
+      console.error('Failed to save holiday', err);
+      alert('Failed to save holiday. Check console.');
+    }
+  };
+
+  const handleDeleteHoliday = async (holidayId) => {
+    if (!window.confirm('Delete this holiday from attendance calendar?')) return;
+
+    try {
+      const response = await fetch(`/api/admin/attendance-holidays/${holidayId}`, { method: 'DELETE' });
+      if (!response.ok) {
+        alert('Failed to delete holiday.');
+        return;
+      }
+      fetchAttendanceHolidays();
+      fetchAttendance();
+    } catch (err) {
+      console.error('Failed to delete holiday', err);
+      alert('Failed to delete holiday. Check console.');
+    }
+  };
+
+  const handleOdSubmit = async (e) => {
+    e.preventDefault();
+
+    try {
+      const response = await fetch('/api/admin/attendance-od', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(odFormData)
+      });
+
+      if (!response.ok) {
+        alert('Failed to save OD.');
+        return;
+      }
+
+      setOdFormData({ user_id: '', od_date: '', reason: '' });
+      fetchAttendance();
+      alert('OD saved. It will not be considered absent.');
+    } catch (err) {
+      console.error('Failed to save OD', err);
+      alert('Failed to save OD. Check console.');
+    }
+  };
+
+  const formatDateTimeForDisplay = (value) => {
+    if (!value) return 'TBA';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value);
+    return date.toLocaleString();
+  };
+
+  const handleCtfSubmit = async (e) => {
+    e.preventDefault();
+
+    try {
+      const response = await fetch(UPCOMING_CTFS_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(ctfFormData)
+      });
+
+      if (!response.ok) {
+        alert('Failed to add upcoming CTF.');
+        return;
+      }
+
+      setCtfFormData({ title: '', url: '', start_time: '', end_time: '', format: 'Jeopardy', location: 'Online', description: '' });
+      fetchUpcomingCtfs();
+      alert('Upcoming CTF added successfully.');
+    } catch (err) {
+      console.error('Failed to add upcoming CTF', err);
+      alert('Failed to add upcoming CTF. Check console.');
+    }
+  };
+
+  const handleDeleteCtf = async (ctf) => {
+    if (ctf.source !== 'manual') {
+      alert('CTFTIME events are external and cannot be deleted here.');
+      return;
+    }
+    if (!window.confirm(`Delete ${ctf.title}?`)) return;
+
+    try {
+      const response = await fetch(`${UPCOMING_CTFS_API_URL}/${ctf.id}`, { method: 'DELETE' });
+      if (!response.ok) {
+        alert('Failed to delete upcoming CTF.');
+        return;
+      }
+      fetchUpcomingCtfs();
+    } catch (err) {
+      console.error('Failed to delete upcoming CTF', err);
+      alert('Failed to delete upcoming CTF. Check console.');
+    }
   };
 
   // PROJECT HANDLERS
@@ -729,6 +886,22 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
             </div>
           </div>
 
+          {/* Upcoming CTFs Card */}
+          <div 
+            onClick={() => setActiveAdminView('upcoming-ctfs')}
+            className="group cursor-pointer bg-surface-container-low p-6 rounded border ghost-border hover:border-primary-container hover:shadow-[0_0_20px_rgba(0,245,255,0.15)] transition-all"
+          >
+            <div className="flex items-center gap-4 mb-4 text-primary-container group-hover:drop-shadow-[0_0_8px_rgba(0,245,255,0.8)]">
+              <span className="material-symbols-outlined text-3xl">flag</span>
+              <h2 className="font-headline text-2xl font-bold tracking-wider">UPCOMING CTFs</h2>
+            </div>
+            <p className="font-mono text-sm text-on-surface-variant line-clamp-2">Track CTFTIME events and manually add lab-priority competitions.</p>
+            <div className="mt-6 flex justify-between items-center text-outline text-[10px] font-mono">
+              <span>{upcomingCtfs?.length || 0} Listed</span>
+              <span className="group-hover:text-primary transition-colors">ACCESS &rarr;</span>
+            </div>
+          </div>
+
           {/* Achievements Card */}
           <div 
             onClick={() => setActiveAdminView('achievements-list')}
@@ -751,7 +924,71 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
               <span className="material-symbols-outlined text-3xl">rule_folder</span>
               <h2 className="font-headline text-2xl font-bold tracking-wider">ATTENDANCE OVERVIEW</h2>
             </div>
-            <p className="font-mono text-sm text-on-surface-variant mb-6">Operative check-in status mapping to tracking database.</p>
+            <p className="font-mono text-sm text-on-surface-variant mb-6">Operative check-in status mapping to tracking database. Sundays, first Saturdays, third Saturdays, holidays, and approved OD are handled in the calculation.</p>
+
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-6">
+              <form onSubmit={handleHolidaySubmit} className="bg-background border border-outline/20 rounded p-4 grid grid-cols-1 md:grid-cols-4 gap-3 font-mono text-xs">
+                <div>
+                  <label className="text-outline block mb-1">Holiday Date</label>
+                  <input type="date" name="holiday_date" value={holidayFormData.holiday_date} onChange={handleHolidayChange} required className="w-full bg-surface-container-low border border-outline/30 rounded p-2 text-on-surface focus:border-primary focus:outline-none" />
+                </div>
+                <div>
+                  <label className="text-outline block mb-1">Title</label>
+                  <input name="title" value={holidayFormData.title} onChange={handleHolidayChange} required className="w-full bg-surface-container-low border border-outline/30 rounded p-2 text-on-surface focus:border-primary focus:outline-none" placeholder="Holiday name" />
+                </div>
+                <div>
+                  <label className="text-outline block mb-1">Type</label>
+                  <select name="holiday_type" value={holidayFormData.holiday_type} onChange={handleHolidayChange} className="w-full bg-surface-container-low border border-outline/30 rounded p-2 text-on-surface focus:border-primary focus:outline-none">
+                    <option value="Institute Holiday">Institute Holiday</option>
+                    <option value="Public Holiday">Public Holiday</option>
+                  </select>
+                </div>
+                <div className="flex items-end">
+                  <button type="submit" className="w-full bg-primary/20 text-primary border border-primary/40 rounded p-2 font-bold hover:bg-primary/30 transition-colors">SAVE HOLIDAY</button>
+                </div>
+              </form>
+
+              <form onSubmit={handleOdSubmit} className="bg-background border border-outline/20 rounded p-4 grid grid-cols-1 md:grid-cols-4 gap-3 font-mono text-xs">
+                <div>
+                  <label className="text-outline block mb-1">Operative</label>
+                  <select name="user_id" value={odFormData.user_id} onChange={handleOdChange} required className="w-full bg-surface-container-low border border-outline/30 rounded p-2 text-on-surface focus:border-primary focus:outline-none">
+                    <option value="">Select</option>
+                    {attendanceStats.map(stat => (
+                      <option key={stat.id} value={stat.id}>{stat.username}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-outline block mb-1">OD Date</label>
+                  <input type="date" name="od_date" value={odFormData.od_date} onChange={handleOdChange} required className="w-full bg-surface-container-low border border-outline/30 rounded p-2 text-on-surface focus:border-primary focus:outline-none" />
+                </div>
+                <div>
+                  <label className="text-outline block mb-1">Reason</label>
+                  <input name="reason" value={odFormData.reason} onChange={handleOdChange} className="w-full bg-surface-container-low border border-outline/30 rounded p-2 text-on-surface focus:border-primary focus:outline-none" placeholder="On duty reason" />
+                </div>
+                <div className="flex items-end">
+                  <button type="submit" className="w-full bg-secondary/20 text-secondary border border-secondary/40 rounded p-2 font-bold hover:bg-secondary/30 transition-colors">MARK OD</button>
+                </div>
+              </form>
+            </div>
+
+            {attendanceHolidays.length > 0 && (
+              <div className="mb-6 bg-background border border-outline/20 rounded p-4">
+                <div className="font-mono text-xs text-outline uppercase tracking-widest mb-3">Configured Holidays</div>
+                <div className="flex flex-wrap gap-2">
+                  {attendanceHolidays.slice(0, 12).map(holiday => (
+                    <div key={holiday.id} className="flex items-center gap-2 bg-surface-container-low border border-outline/20 rounded px-3 py-2 font-mono text-xs">
+                      <span className="text-primary">{String(holiday.holiday_date).slice(0, 10)}</span>
+                      <span className="text-on-surface">{holiday.title}</span>
+                      <span className="text-outline">({holiday.holiday_type})</span>
+                      <button onClick={() => handleDeleteHoliday(holiday.id)} className="text-error hover:text-on-surface">
+                        <span className="material-symbols-outlined text-sm">close</span>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="overflow-x-auto">
               <table className="w-full text-left font-mono text-sm">
                 <thead>
@@ -759,6 +996,8 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                     <th className="pb-3 px-4">User ID</th>
                     <th className="pb-3 px-4">Operative</th>
                     <th className="pb-3 px-4 text-center">Total Attendances</th>
+                    <th className="pb-3 px-4 text-center">OD</th>
+                    <th className="pb-3 px-4 text-center">Working Days</th>
                     <th className="pb-3 px-4 text-right">Attendance %</th>
                     <th className="pb-3 px-4 text-right">Actions</th>
                   </tr>
@@ -766,7 +1005,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                 <tbody>
                   {attendanceStats.length === 0 ? (
                     <tr>
-                      <td colSpan="5" className="text-center py-6 text-outline">No attendance records found in the database.</td>
+                      <td colSpan="7" className="text-center py-6 text-outline">No attendance records found in the database.</td>
                     </tr>
                   ) : (
                     attendanceStats.map(stat => (
@@ -774,6 +1013,8 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                         <td className="py-4 px-4 text-primary-container">{stat.id}</td>
                         <td className="py-4 px-4 font-bold text-on-surface uppercase">{stat.username}</td>
                         <td className="py-4 px-4 text-center">{stat.attended_days}</td>
+                        <td className="py-4 px-4 text-center">{stat.od_days || 0}</td>
+                        <td className="py-4 px-4 text-center">{stat.working_days || 0}</td>
                         <td className="py-4 px-4 text-right">
                           <span className={`px-2 py-1 rounded border ${stat.percentage > 80 ? 'bg-primary-container/10 border-primary-container/30 text-primary-container' : stat.percentage > 50 ? 'bg-outline/10 border-outline/30 text-outline' : 'bg-error/10 border-error/30 text-error'}`}>
                             {stat.percentage}%
@@ -1531,6 +1772,104 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
               {editingId ? 'UPDATE INDIVIDUAL' : 'INITIALIZE INDIVIDUAL'}
             </button>
           </form>
+        </div>
+      )}
+
+      {/* UPCOMING CTFS VIEW */}
+      {activeAdminView === 'upcoming-ctfs' && (
+        <div className="flex flex-col gap-6">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-surface-container-low p-6 rounded border ghost-border">
+            <div>
+              <h2 className="font-headline text-2xl font-bold tracking-wider text-primary-container">UPCOMING CTF DIRECTORY</h2>
+              <p className="font-mono text-sm text-on-surface-variant">Live CTFTIME feed plus manually tracked lab events.</p>
+            </div>
+            <button
+              onClick={fetchUpcomingCtfs}
+              className="bg-primary/20 hover:bg-primary/30 text-primary px-5 py-2.5 font-bold font-mono text-xs border border-primary/50 transition-all rounded flex items-center gap-2"
+            >
+              <span className="material-symbols-outlined text-sm">sync</span>
+              REFRESH CTFTIME
+            </button>
+          </div>
+
+          <form onSubmit={handleCtfSubmit} className="bg-background border border-outline/20 rounded p-5 grid grid-cols-1 lg:grid-cols-12 gap-4 font-mono text-xs">
+            <div className="lg:col-span-3">
+              <label className="text-outline block mb-1">CTF Title</label>
+              <input name="title" value={ctfFormData.title} onChange={handleCtfChange} required className="w-full bg-surface-container-low border border-outline/30 rounded p-2.5 text-on-surface focus:border-primary focus:outline-none" placeholder="e.g. Internal Boot2Root Sprint" />
+            </div>
+            <div className="lg:col-span-3">
+              <label className="text-outline block mb-1">URL</label>
+              <input name="url" value={ctfFormData.url} onChange={handleCtfChange} className="w-full bg-surface-container-low border border-outline/30 rounded p-2.5 text-on-surface focus:border-primary focus:outline-none" placeholder="https://..." />
+            </div>
+            <div className="lg:col-span-2">
+              <label className="text-outline block mb-1">Start</label>
+              <input type="datetime-local" name="start_time" value={ctfFormData.start_time} onChange={handleCtfChange} className="w-full bg-surface-container-low border border-outline/30 rounded p-2.5 text-on-surface focus:border-primary focus:outline-none" />
+            </div>
+            <div className="lg:col-span-2">
+              <label className="text-outline block mb-1">End</label>
+              <input type="datetime-local" name="end_time" value={ctfFormData.end_time} onChange={handleCtfChange} className="w-full bg-surface-container-low border border-outline/30 rounded p-2.5 text-on-surface focus:border-primary focus:outline-none" />
+            </div>
+            <div className="lg:col-span-1">
+              <label className="text-outline block mb-1">Format</label>
+              <input name="format" value={ctfFormData.format} onChange={handleCtfChange} className="w-full bg-surface-container-low border border-outline/30 rounded p-2.5 text-on-surface focus:border-primary focus:outline-none" />
+            </div>
+            <div className="lg:col-span-1">
+              <label className="text-outline block mb-1">Location</label>
+              <input name="location" value={ctfFormData.location} onChange={handleCtfChange} className="w-full bg-surface-container-low border border-outline/30 rounded p-2.5 text-on-surface focus:border-primary focus:outline-none" />
+            </div>
+            <div className="lg:col-span-10">
+              <label className="text-outline block mb-1">Notes</label>
+              <textarea name="description" value={ctfFormData.description} onChange={handleCtfChange} rows="2" className="w-full bg-surface-container-low border border-outline/30 rounded p-2.5 text-on-surface focus:border-primary focus:outline-none" placeholder="Why this CTF matters for the lab, team assignment, categories to focus..." />
+            </div>
+            <div className="lg:col-span-2 flex items-end">
+              <button type="submit" className="w-full bg-primary-container text-on-primary-fixed px-4 py-3 rounded font-headline font-bold hover:shadow-[0_0_18px_rgba(0,245,255,0.35)] transition-all">
+                ADD CTF
+              </button>
+            </div>
+          </form>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {upcomingCtfs.length === 0 ? (
+              <div className="md:col-span-2 xl:col-span-3 bg-surface-container-low p-8 text-center rounded border border-outline/20">
+                <p className="text-outline font-mono text-sm">No upcoming CTFs found. Add one manually or refresh CTFTIME.</p>
+              </div>
+            ) : (
+              upcomingCtfs.map(ctf => (
+                <article key={`${ctf.source}-${ctf.id}`} className="bg-background border border-outline/20 rounded p-5 flex flex-col gap-4 hover:border-primary/40 transition-colors">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className={`font-mono text-[10px] uppercase tracking-widest mb-2 ${ctf.source === 'ctftime' ? 'text-secondary' : 'text-primary'}`}>
+                        {ctf.source === 'ctftime' ? 'CTFTIME API' : 'MANUAL ENTRY'}
+                      </div>
+                      <h3 className="font-headline text-xl font-bold text-on-surface">{ctf.title}</h3>
+                    </div>
+                    {ctf.source === 'manual' && (
+                      <button onClick={() => handleDeleteCtf(ctf)} className="text-error hover:bg-error/10 p-2 rounded border border-error/20">
+                        <span className="material-symbols-outlined text-sm">delete</span>
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-2 font-mono text-xs text-on-surface-variant">
+                    <div><span className="text-outline uppercase">Start:</span> {formatDateTimeForDisplay(ctf.start_time)}</div>
+                    <div><span className="text-outline uppercase">End:</span> {formatDateTimeForDisplay(ctf.end_time)}</div>
+                    <div><span className="text-outline uppercase">Format:</span> {ctf.format || 'CTF'}</div>
+                    <div><span className="text-outline uppercase">Location:</span> {ctf.location || 'Online'}</div>
+                  </div>
+
+                  {ctf.description && (
+                    <p className="font-body text-xs text-on-surface-variant line-clamp-3">{ctf.description}</p>
+                  )}
+
+                  {ctf.url && (
+                    <a href={ctf.url} target="_blank" rel="noreferrer" className="mt-auto text-primary font-mono text-xs flex items-center gap-1 hover:underline">
+                      OPEN EVENT <span className="material-symbols-outlined text-sm">open_in_new</span>
+                    </a>
+                  )}
+                </article>
+              ))
+            )}
+          </div>
         </div>
       )}
 
