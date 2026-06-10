@@ -1,5 +1,5 @@
 /* Designed and engineered by liyander Rishwanth (CyberGhost05) */
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import SimpleMdeReact from "react-simplemde-editor";
 import "easymde/dist/easymde.min.css";
 
@@ -25,6 +25,8 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
   const [attendanceHolidays, setAttendanceHolidays] = useState([]);
   const [selectedIndividual, setSelectedIndividual] = useState(null);
   const [selectedIndividualLoading, setSelectedIndividualLoading] = useState(false);
+  const [dialogState, setDialogState] = useState(null);
+  const dialogResolverRef = useRef(null);
 
   // Form States
   const [formData, setFormData] = useState({
@@ -45,6 +47,23 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
   const [ctfFormData, setCtfFormData] = useState({ title: '', url: '', start_time: '', end_time: '', format: 'Jeopardy', location: 'Online', description: '' });
   const [holidayFormData, setHolidayFormData] = useState({ holiday_date: '', title: '', holiday_type: 'Institute Holiday' });
   const [odFormData, setOdFormData] = useState({ user_id: '', od_date: '', reason: '' });
+
+  const showAlert = (message, tone = 'info') => {
+    setDialogState({ type: 'alert', tone, title: tone === 'error' ? 'Action Failed' : 'System Notice', message });
+  };
+
+  const showConfirm = (message, title = 'Confirm Action') => new Promise((resolve) => {
+    dialogResolverRef.current = resolve;
+    setDialogState({ type: 'confirm', tone: 'danger', title, message });
+  });
+
+  const closeDialog = (result = false) => {
+    if (dialogResolverRef.current) {
+      dialogResolverRef.current(result);
+      dialogResolverRef.current = null;
+    }
+    setDialogState(null);
+  };
 
   const handleSimpleMdeChange = useCallback((value, field, setter, formData) => {
     setter({ ...formData, [field]: value });
@@ -228,7 +247,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
       setIndividualFormData({ ...individualFormData, image: data.imageUrl });
     } catch (err) {
       console.error('Error uploading image', err);
-      alert('Failed to upload image');
+      showAlert('Failed to upload image');
     }
   };
 
@@ -263,34 +282,34 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
       });
 
       if (!response.ok) {
-        alert('Failed to save holiday.');
+        showAlert('Failed to save holiday.');
         return;
       }
 
       setHolidayFormData({ holiday_date: '', title: '', holiday_type: 'Institute Holiday' });
       fetchAttendanceHolidays();
       fetchAttendance();
-      alert('Holiday saved. Attendance percentages recalculated.');
+      showAlert('Holiday saved. Attendance percentages recalculated.');
     } catch (err) {
       console.error('Failed to save holiday', err);
-      alert('Failed to save holiday. Check console.');
+      showAlert('Failed to save holiday. Check console.');
     }
   };
 
   const handleDeleteHoliday = async (holidayId) => {
-    if (!window.confirm('Delete this holiday from attendance calendar?')) return;
+    if (!(await showConfirm('Delete this holiday from attendance calendar?'))) return;
 
     try {
       const response = await fetch(`/api/admin/attendance-holidays/${holidayId}`, { method: 'DELETE' });
       if (!response.ok) {
-        alert('Failed to delete holiday.');
+        showAlert('Failed to delete holiday.');
         return;
       }
       fetchAttendanceHolidays();
       fetchAttendance();
     } catch (err) {
       console.error('Failed to delete holiday', err);
-      alert('Failed to delete holiday. Check console.');
+      showAlert('Failed to delete holiday. Check console.');
     }
   };
 
@@ -305,16 +324,16 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
       });
 
       if (!response.ok) {
-        alert('Failed to save OD.');
+        showAlert('Failed to save OD.');
         return;
       }
 
       setOdFormData({ user_id: '', od_date: '', reason: '' });
       fetchAttendance();
-      alert('OD saved. It will not be considered absent.');
+      showAlert('OD saved. It will not be considered absent.');
     } catch (err) {
       console.error('Failed to save OD', err);
-      alert('Failed to save OD. Check console.');
+      showAlert('Failed to save OD. Check console.');
     }
   };
 
@@ -336,36 +355,36 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
       });
 
       if (!response.ok) {
-        alert('Failed to add upcoming CTF.');
+        showAlert('Failed to add upcoming CTF.');
         return;
       }
 
       setCtfFormData({ title: '', url: '', start_time: '', end_time: '', format: 'Jeopardy', location: 'Online', description: '' });
       fetchUpcomingCtfs();
-      alert('Upcoming CTF added successfully.');
+      showAlert('Upcoming CTF added successfully.');
     } catch (err) {
       console.error('Failed to add upcoming CTF', err);
-      alert('Failed to add upcoming CTF. Check console.');
+      showAlert('Failed to add upcoming CTF. Check console.');
     }
   };
 
   const handleDeleteCtf = async (ctf) => {
     if (ctf.source !== 'manual') {
-      alert('CTFTIME events are external and cannot be deleted here.');
+      showAlert('CTFTIME events are external and cannot be deleted here.');
       return;
     }
-    if (!window.confirm(`Delete ${ctf.title}?`)) return;
+    if (!(await showConfirm(`Delete ${ctf.title}?`))) return;
 
     try {
       const response = await fetch(`${UPCOMING_CTFS_API_URL}/${ctf.id}`, { method: 'DELETE' });
       if (!response.ok) {
-        alert('Failed to delete upcoming CTF.');
+        showAlert('Failed to delete upcoming CTF.');
         return;
       }
       fetchUpcomingCtfs();
     } catch (err) {
       console.error('Failed to delete upcoming CTF', err);
-      alert('Failed to delete upcoming CTF. Check console.');
+      showAlert('Failed to delete upcoming CTF. Check console.');
     }
   };
 
@@ -415,7 +434,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
         body: JSON.stringify(formattedData)
       });
       fetchProjects(); // Refresh list
-      alert(`Project ${editingId ? 'Updated' : 'Added'} Successfully!`);
+      showAlert(`Project ${editingId ? 'Updated' : 'Added'} Successfully!`);
       setFormData({
         id: '', title: '', status: 'ONGOING', priority: 'Red team', 
         description: '', shortDesc: '', image: '', stack: '', 
@@ -425,12 +444,12 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
       setActiveAdminView('projects-list');
     } catch (err) {
       console.error('Failed to save project', err);
-      alert('Error saving project. Check console.');
+      showAlert('Error saving project. Check console.');
     }
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Delete this project?')) return;
+    if (!(await showConfirm('Delete this product?'))) return;
     try {
       await fetch(`${API_URL}/${id}`, { method: 'DELETE' });
       fetchProjects();
@@ -461,7 +480,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
         body: JSON.stringify(teamFormData)
       });
       fetchTeams();
-      alert(`Team ${editingId ? 'Updated' : 'Added'} Successfully!`);
+      showAlert(`Team ${editingId ? 'Updated' : 'Added'} Successfully!`);
       setTeamFormData({ name: '', description: '', technical_summary: '', current_objective: '' });
       setEditingId(null);
       setActiveAdminView('teams-list');
@@ -471,7 +490,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
   };
 
   const handleDeleteTeam = async (id) => {
-    if (!window.confirm('Delete this team?')) return;
+    if (!(await showConfirm('Delete this team?'))) return;
     try {
       await fetch(`${TEAMS_API_URL}/${id}`, { method: 'DELETE' });
       fetchTeams();
@@ -507,7 +526,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
     try {
       const response = await fetch(`${INDIVIDUALS_API_URL}/${ind.id}`);
       if (!response.ok) {
-        alert('Failed to load individual details.');
+        showAlert('Failed to load individual details.');
         setActiveAdminView('individuals-list');
         return;
       }
@@ -516,7 +535,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
       setSelectedIndividual(data);
     } catch (err) {
       console.error('Failed to load individual details', err);
-      alert('Failed to load individual details. Check console.');
+      showAlert('Failed to load individual details. Check console.');
       setActiveAdminView('individuals-list');
     } finally {
       setSelectedIndividualLoading(false);
@@ -533,7 +552,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
         body: JSON.stringify(individualFormData)
       });
       fetchIndividuals();
-      alert(`Individual ${editingId ? 'Updated' : 'Added'} Successfully!`);
+      showAlert(`Individual ${editingId ? 'Updated' : 'Added'} Successfully!`);
       setIndividualFormData({
         name: '', role: '', team_id: '', department: '', year_of_study: '', daily_work: '', image: '',
         achievements: [], certificates: [], research_work: []
@@ -546,7 +565,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
   };
 
   const handleDeleteIndividual = async (id) => {
-    if (!window.confirm('Delete this individual?')) return;
+    if (!(await showConfirm('Delete this individual?'))) return;
     try {
       await fetch(`${INDIVIDUALS_API_URL}/${id}`, { method: 'DELETE' });
       fetchIndividuals();
@@ -578,7 +597,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
       });
 
       if (!response.ok) {
-        alert('Failed to update daily work.');
+        showAlert('Failed to update daily work.');
         return;
       }
 
@@ -586,10 +605,10 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
       if (selectedIndividual?.id === ind.id) {
         handleViewIndividual(ind);
       }
-      alert(`Current day work stored for ${ind.name}.`);
+      showAlert(`Current day work stored for ${ind.name}.`);
     } catch (err) {
       console.error('Failed to update daily work', err);
-      alert('Failed to update daily work. Check console.');
+      showAlert('Failed to update daily work. Check console.');
     }
   };
 
@@ -606,34 +625,34 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok || !data.success) {
-        alert(data.message || 'Failed to update individual password.');
+        showAlert(data.message || 'Failed to update individual password.');
         return;
       }
 
-      alert(`${operative.username} password updated. 2FA was reset for a fresh setup.`);
+      showAlert(`${operative.username} password updated. 2FA was reset for a fresh setup.`);
     } catch (err) {
       console.error('Failed to update operative password', err);
-      alert('Failed to update operative password. Check console.');
+      showAlert('Failed to update operative password. Check console.');
     }
   };
 
   const handleDeleteOperativeUser = async (operative) => {
-    if (!window.confirm(`Delete operative login for ${operative.username}? Attendance history for this login will also be removed.`)) return;
+    if (!(await showConfirm(`Delete operative login for ${operative.username}? Attendance history for this login will also be removed.`))) return;
 
     try {
       const response = await fetch(`/api/admin/users/${operative.id}`, { method: 'DELETE' });
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok || !data.success) {
-        alert(data.message || 'Failed to delete operative login.');
+        showAlert(data.message || 'Failed to delete operative login.');
         return;
       }
 
       fetchAttendance();
-      alert(`${operative.username} deleted from operative logins.`);
+      showAlert(`${operative.username} deleted from operative logins.`);
     } catch (err) {
       console.error('Failed to delete operative login', err);
-      alert('Failed to delete operative login. Check console.');
+      showAlert('Failed to delete operative login. Check console.');
     }
   };
 
@@ -687,7 +706,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
         body: JSON.stringify(cveFormData)
       });
       fetchCves();
-      alert(`CVE ${editingId ? 'Updated' : 'Added'} Successfully!`);
+      showAlert(`CVE ${editingId ? 'Updated' : 'Added'} Successfully!`);
       setCveFormData({ cve_number: '', details: '', poc: '', reference_link: '', contributors: [] });
       setEditingId(null);
       setActiveAdminView('cves-list');
@@ -697,7 +716,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
   };
 
   const handleDeleteCve = async (id) => {
-    if (!window.confirm('Delete this CVE?')) return;
+    if (!(await showConfirm('Delete this CVE?'))) return;
     try {
       await fetch(`${CVES_API_URL}/${id}`, { method: 'DELETE' });
       fetchCves();
@@ -736,7 +755,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
         body: JSON.stringify(achievementFormData)
       });
       fetchAchievements();
-      alert(`Achievement ${editingId ? 'Updated' : 'Added'} Successfully!`);
+      showAlert(`Achievement ${editingId ? 'Updated' : 'Added'} Successfully!`);
       setAchievementFormData({ title: '', description: '', reference_link: [''], future_scope: '', contributors: [] });
       setEditingId(null);
       setActiveAdminView('achievements-list');
@@ -746,7 +765,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
   };
 
   const handleDeleteAchievement = async (id) => {
-    if (!window.confirm('Delete this achievement?')) return;
+    if (!(await showConfirm('Delete this achievement?'))) return;
     try {
       await fetch(`${ACHIEVEMENTS_API_URL}/${id}`, { method: 'DELETE' });
       fetchAchievements();
@@ -782,16 +801,16 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
           })
         });
         fetchFutureScopes();
-        alert(`Future Scope ${editingId ? 'Updated' : 'Added'} Successfully!`);
+        showAlert(`Future Scope ${editingId ? 'Updated' : 'Added'} Successfully!`);
         setFutureScopeFormData({ title: '', category: 'RESEARCH', priority: 'Normal', description: '', proposed_date: '', reference_link: [''] });
       } catch (err) {
         console.error('Error submitting future scope:', err);
-        alert('Failed to save future scope. Please check the network tab.');
+        showAlert('Failed to save future scope. Please check the network tab.');
       }
     };
 
     const handleDeleteFutureScope = async (id) => {
-    if (!window.confirm('Delete this future scope?')) return;
+    if (!(await showConfirm('Delete this future scope?'))) return;
     try {
       await fetch(`${FUTURE_SCOPES_API_URL}/${id}`, { method: 'DELETE' });
       fetchFutureScopes();
@@ -802,6 +821,38 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
 
   return (
     <div className="pt-12 pb-12 px-6 lg:px-12 max-w-7xl mx-auto w-full flex flex-col gap-8 text-on-surface">
+      {dialogState && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm">
+          <div className="w-full max-w-md bg-surface-container-highest border border-outline/30 rounded shadow-[0_0_40px_rgba(0,245,255,0.12)] overflow-hidden">
+            <div className={`px-5 py-4 border-b border-outline/20 flex items-center gap-3 ${dialogState.tone === 'danger' || dialogState.tone === 'error' ? 'text-error' : 'text-primary'}`}>
+              <span className="material-symbols-outlined text-xl">
+                {dialogState.type === 'confirm' ? 'warning' : dialogState.tone === 'error' ? 'error' : 'info'}
+              </span>
+              <h2 className="font-headline text-xl font-bold tracking-wide">{dialogState.title}</h2>
+            </div>
+            <div className="p-5">
+              <p className="font-mono text-sm text-on-surface-variant leading-relaxed whitespace-pre-wrap">{dialogState.message}</p>
+            </div>
+            <div className="px-5 py-4 bg-background/50 border-t border-outline/20 flex justify-end gap-3">
+              {dialogState.type === 'confirm' && (
+                <button
+                  onClick={() => closeDialog(false)}
+                  className="px-4 py-2 rounded border border-outline/30 text-outline hover:text-on-surface hover:border-outline font-mono text-xs transition-colors"
+                >
+                  CANCEL
+                </button>
+              )}
+              <button
+                onClick={() => closeDialog(dialogState.type === 'confirm')}
+                className={`px-4 py-2 rounded font-mono text-xs font-bold transition-colors ${dialogState.type === 'confirm' ? 'bg-error/20 border border-error/40 text-error hover:bg-error hover:text-on-error' : 'bg-primary/20 border border-primary/40 text-primary hover:bg-primary hover:text-on-primary-fixed'}`}
+              >
+                {dialogState.type === 'confirm' ? 'CONFIRM' : 'OK'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <button 
         onClick={activeAdminView === 'dashboard' ? onBack : () => setActiveAdminView('dashboard')}
         className="self-start flex items-center gap-2 font-mono text-xs text-outline hover:text-primary-container transition-colors mb-4"
@@ -2045,9 +2096,9 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                         body: JSON.stringify({ username: adminUser, currentPassword, newPassword })
                       });
                       const data = await res.json();
-                      if (data.success) { alert('Password changed successfully'); e.target.reset(); }
-                      else { alert('Error: ' + data.message); }
-                    } catch(err) { console.error(err); alert('Failed to connect to server'); }
+                      if (data.success) { showAlert('Password changed successfully'); e.target.reset(); }
+                      else { showAlert('Error: ' + data.message); }
+                    } catch(err) { console.error(err); showAlert('Failed to connect to server'); }
                   }} className="space-y-4">
                     <div>
                       <label className="block text-xs font-mono mb-1 text-on-surface-variant">Current Password</label>
@@ -2074,9 +2125,9 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                         body: JSON.stringify({ newUsername, newPassword })
                       });
                       const data = await res.json();
-                      if (data.success) { alert('Admin created successfully'); e.target.reset(); }
-                      else { alert('Error: ' + data.message); }
-                    } catch(err) { console.error(err); alert('Failed to connect to server'); }
+                      if (data.success) { showAlert('Admin created successfully'); e.target.reset(); }
+                      else { showAlert('Error: ' + data.message); }
+                    } catch(err) { console.error(err); showAlert('Failed to connect to server'); }
                   }} className="space-y-4">
                     <div>
                       <label className="block text-xs font-mono mb-1 text-on-surface-variant">New Username</label>
@@ -2103,9 +2154,9 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                           body: JSON.stringify({ newUsername, newPassword })
                         });
                         const data = await res.json();
-                        if (data.success) { alert('Operative profile created successfully'); e.target.reset(); }
-                        else { alert('Error: ' + data.message); }
-                      } catch(err) { console.error(err); alert('Failed to connect to server'); }
+                        if (data.success) { showAlert('Operative profile created successfully'); e.target.reset(); }
+                        else { showAlert('Error: ' + data.message); }
+                      } catch(err) { console.error(err); showAlert('Failed to connect to server'); }
                     }} className="space-y-4">
                       <div>
                         <label className="block text-xs font-mono mb-1 text-on-surface-variant">Operative Username</label>
@@ -2127,4 +2178,5 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
   }
   
 export default AdminPanel;
+
 
