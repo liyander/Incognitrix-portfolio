@@ -163,6 +163,9 @@ function Individuals({ onSelectIndividual, useDatabase }) {
                              <span className="text-xs text-primary opacity-60 uppercase mr-2">Year:</span> {ind.year_of_study}
                           </p>
                           <p className="font-body text-on-surface-variant text-sm line-clamp-3">
+                             <span className="text-xs text-primary opacity-60 uppercase mr-2">Studying Year:</span> {ind.studying_year ? `Year ${ind.studying_year}` : 'N/A'}
+                          </p>
+                          <p className="font-body text-on-surface-variant text-sm line-clamp-3">
                              <span className="text-xs text-primary opacity-60 uppercase mr-2">Team:</span> {ind.team_name || 'UNASSIGNED'}
                           </p>
                           <p className="font-body text-on-surface-variant text-sm line-clamp-3">
@@ -213,6 +216,9 @@ function Individuals({ onSelectIndividual, useDatabase }) {
                           </p>
                           <p className="font-body text-on-surface-variant text-xs line-clamp-2">
                              <span className="opacity-60 uppercase mr-1">Year:</span> {ind.year_of_study}
+                          </p>
+                          <p className="font-body text-on-surface-variant text-xs line-clamp-2">
+                             <span className="opacity-60 uppercase mr-1">Study Year:</span> {ind.studying_year ? `Year ${ind.studying_year}` : 'N/A'}
                           </p>
                           <p className="font-body text-on-surface-variant text-xs line-clamp-2">
                              <span className="opacity-60 uppercase mr-1">Team:</span> {ind.team_name || 'UNASSIGNED'}

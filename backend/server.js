@@ -96,6 +96,14 @@ async function ensureRuntimeSchema() {
         if (!individualColumns.some(col => col.Field === 'daily_work')) {
             await pool.query('ALTER TABLE individuals ADD COLUMN daily_work TEXT');
         }
+        if (!individualColumns.some(col => col.Field === 'studying_year')) {
+            await pool.query('ALTER TABLE individuals ADD COLUMN studying_year INT');
+            await pool.query(`
+                UPDATE individuals
+                SET studying_year = CAST(REGEXP_SUBSTR(year_of_study, '[0-9]+') AS UNSIGNED)
+                WHERE studying_year IS NULL AND year_of_study REGEXP '[0-9]+'
+            `);
+        }
         await pool.query(`
             CREATE TABLE IF NOT EXISTS individual_work_logs (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -326,10 +334,12 @@ app.get('/api/individuals', async (req, res) => {
 app.get('/api/individuals/:id', async (req, res) => {
     try {
         const [rows] = await pool.query(`
-            SELECT i.*, t.name as team_name, wl.work_text as current_day_work
+            SELECT i.*, t.name as team_name, wl.work_text as current_day_work, u.id as attendance_user_id
             FROM individuals i 
             LEFT JOIN teams t ON i.team_id = t.id
             LEFT JOIN individual_work_logs wl ON wl.individual_id = i.id AND wl.work_date = CURRENT_DATE
+            LEFT JOIN users u
+                ON LOWER(REPLACE(REPLACE(i.name, '.', ''), ' ', '')) = LOWER(REPLACE(REPLACE(u.username, '.', ''), ' ', ''))
             WHERE i.id = ?
         `, [req.params.id]);
         if (rows.length === 0) return res.status(404).json({ error: 'Individual not found' });
@@ -340,7 +350,64 @@ app.get('/api/individuals/:id', async (req, res) => {
             ORDER BY work_date DESC, id DESC
             LIMIT 60
         `, [req.params.id]);
-        res.json({ ...rows[0], work_timeline: workTimeline });
+
+        const todayKey = new Date().toISOString().slice(0, 10);
+        const monthStart = `${todayKey.slice(0, 7)}-01`;
+        const monthEndDate = new Date(`${monthStart}T00:00:00`);
+        monthEndDate.setMonth(monthEndDate.getMonth() + 1);
+        monthEndDate.setDate(0);
+        const monthEnd = monthEndDate.toISOString().slice(0, 10);
+        const calendarDates = getDateRange(monthStart, monthEnd).map(date => date.toISOString().slice(0, 10));
+        const workingDateKeys = await getWorkingDateKeys(monthStart, todayKey);
+        const workingDateSet = new Set(workingDateKeys);
+        const attendanceUserId = rows[0].attendance_user_id;
+
+        const [attendanceRows] = attendanceUserId ? await pool.query(
+            'SELECT attendance_date FROM attendance WHERE user_id = ? AND attendance_date BETWEEN ? AND ?',
+            [attendanceUserId, monthStart, todayKey]
+        ) : [[]];
+        const [odRows] = attendanceUserId ? await pool.query(
+            'SELECT od_date, reason FROM attendance_od WHERE user_id = ? AND od_date BETWEEN ? AND ?',
+            [attendanceUserId, monthStart, todayKey]
+        ) : [[]];
+
+        const presentDates = new Set(attendanceRows.map(row => toDateKey(row.attendance_date)));
+        const odByDate = new Map(odRows.map(row => [toDateKey(row.od_date), row.reason || 'On duty']));
+        const attendanceCalendar = calendarDates.map(dateKey => {
+            const date = new Date(`${dateKey}T00:00:00`);
+            let status = 'off';
+            let label = 'Not counted';
+
+            if (dateKey > todayKey) {
+                status = 'upcoming';
+                label = 'Upcoming';
+            } else if (workingDateSet.has(dateKey)) {
+                if (presentDates.has(dateKey)) {
+                    status = 'present';
+                    label = 'Present';
+                } else if (odByDate.has(dateKey)) {
+                    status = 'od';
+                    label = odByDate.get(dateKey);
+                } else {
+                    status = 'absent';
+                    label = 'Absent';
+                }
+            }
+
+            return {
+                date: dateKey,
+                day: date.toLocaleDateString('en-US', { weekday: 'short' }),
+                status,
+                label
+            };
+        });
+
+        res.json({
+            ...rows[0],
+            work_timeline: workTimeline,
+            attendance_calendar: attendanceCalendar,
+            attendance_calendar_month: todayKey.slice(0, 7)
+        });
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Server error fetching individual' });
@@ -356,14 +423,15 @@ app.post('/api/upload', upload.single('image'), (req, res) => {
 });
 
 app.post('/api/individuals', async (req, res) => {
-    const { name, role, team_id, department, year_of_study, daily_work, achievements, certificates, research_work, image } = req.body;
+    const { name, role, team_id, department, year_of_study, studying_year, daily_work, achievements, certificates, research_work, image } = req.body;
     try {
         const parsedTeamId = team_id && team_id !== '' ? parseInt(team_id, 10) : null;
+        const parsedStudyingYear = studying_year && studying_year !== '' ? parseInt(studying_year, 10) : null;
 
         const [result] = await pool.query(
-            'INSERT INTO individuals (name, role, team_id, department, year_of_study, daily_work, achievements, certificates, research_work, image) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            'INSERT INTO individuals (name, role, team_id, department, year_of_study, studying_year, daily_work, achievements, certificates, research_work, image) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             [
-                name, role, parsedTeamId, department, year_of_study, daily_work || '',
+                name, role, parsedTeamId, department, year_of_study, parsedStudyingYear, daily_work || '',
                 JSON.stringify(achievements || []), 
                 JSON.stringify(certificates || []), 
                 JSON.stringify(research_work || []),
@@ -386,13 +454,14 @@ app.post('/api/individuals', async (req, res) => {
 });
 
 app.put('/api/individuals/:id', async (req, res) => {
-    const { name, role, team_id, department, year_of_study, daily_work, achievements, certificates, research_work, image } = req.body;
+    const { name, role, team_id, department, year_of_study, studying_year, daily_work, achievements, certificates, research_work, image } = req.body;
     try {
         const parsedTeamId = team_id && team_id !== '' ? parseInt(team_id, 10) : null;
+        const parsedStudyingYear = studying_year && studying_year !== '' ? parseInt(studying_year, 10) : null;
         await pool.query(
-            'UPDATE individuals SET name = ?, role = ?, team_id = ?, department = ?, year_of_study = ?, daily_work = ?, achievements = ?, certificates = ?, research_work = ?, image = ? WHERE id = ?',
+            'UPDATE individuals SET name = ?, role = ?, team_id = ?, department = ?, year_of_study = ?, studying_year = ?, daily_work = ?, achievements = ?, certificates = ?, research_work = ?, image = ? WHERE id = ?',
             [
-                name, role, parsedTeamId, department, year_of_study, daily_work || '',
+                name, role, parsedTeamId, department, year_of_study, parsedStudyingYear, daily_work || '',
                 JSON.stringify(achievements || []), 
                 JSON.stringify(certificates || []), 
                 JSON.stringify(research_work || []), 
@@ -779,28 +848,75 @@ const getDateRange = (startKey, endKey) => {
     return dates;
 };
 
+const getWorkingDateKeys = async (startKey, endKey) => {
+    const [holidayRows] = await pool.query(
+        'SELECT holiday_date FROM attendance_holidays WHERE holiday_date BETWEEN ? AND ?',
+        [startKey, endKey]
+    );
+    const holidayDates = new Set(holidayRows.map(h => toDateKey(h.holiday_date)));
+
+    return getDateRange(startKey, endKey)
+        .filter(date => date.getDay() !== 0)
+        .filter(date => !isFirstOrThirdSaturday(date))
+        .map(date => date.toISOString().slice(0, 10))
+        .filter(dateKey => !holidayDates.has(dateKey));
+};
+
+const escapeCsv = (value) => {
+    const text = value === null || value === undefined ? '' : String(value);
+    return `"${text.replace(/"/g, '""')}"`;
+};
+
+const getIsoWeekRange = (weekValue) => {
+    const match = /^(\d{4})-W(\d{2})$/.exec(weekValue);
+    if (!match) return null;
+
+    const year = Number(match[1]);
+    const week = Number(match[2]);
+    if (week < 1 || week > 53) return null;
+
+    const jan4 = new Date(Date.UTC(year, 0, 4));
+    const jan4Day = jan4.getUTCDay() || 7;
+    const weekOneMonday = new Date(jan4);
+    weekOneMonday.setUTCDate(jan4.getUTCDate() - jan4Day + 1);
+
+    const start = new Date(weekOneMonday);
+    start.setUTCDate(weekOneMonday.getUTCDate() + ((week - 1) * 7));
+
+    const end = new Date(start);
+    end.setUTCDate(start.getUTCDate() + 6);
+
+    return {
+        startKey: start.toISOString().slice(0, 10),
+        endKey: end.toISOString().slice(0, 10)
+    };
+};
+
+const formatDateDayLabel = (dateKey) => {
+    const [year, month, day] = dateKey.split('-');
+    const date = new Date(`${dateKey}T00:00:00`);
+    const dayName = date.toLocaleDateString('en-US', { weekday: 'long' });
+    return `${day}-${month}-${year} ${dayName}`;
+};
+
 // Admin Get Attendance
 app.get('/api/admin/attendance', async (req, res) => {
     try {
         const todayKey = new Date().toISOString().slice(0, 10);
         const [minRows] = await pool.query('SELECT MIN(attendance_date) as minDate FROM attendance');
         const minDateKey = toDateKey(minRows[0]?.minDate) || todayKey;
-
-        const [holidayRows] = await pool.query(
-            'SELECT * FROM attendance_holidays WHERE holiday_date BETWEEN ? AND ? ORDER BY holiday_date ASC',
-            [minDateKey, todayKey]
-        );
-        const holidayDates = new Set(holidayRows.map(h => toDateKey(h.holiday_date)));
-        const workingDateKeys = getDateRange(minDateKey, todayKey)
-            .filter(date => date.getDay() !== 0)
-            .filter(date => !isFirstOrThirdSaturday(date))
-            .map(date => date.toISOString().slice(0, 10))
-            .filter(dateKey => !holidayDates.has(dateKey));
+        const workingDateKeys = await getWorkingDateKeys(minDateKey, todayKey);
 
         const workingDateSet = new Set(workingDateKeys);
         const totalWorkingDays = workingDateKeys.length;
 
-        const [users] = await pool.query('SELECT id, username FROM users ORDER BY id ASC');
+        const [users] = await pool.query(`
+            SELECT u.id, u.username, i.studying_year
+            FROM users u
+            LEFT JOIN individuals i
+                ON LOWER(REPLACE(REPLACE(i.name, '.', ''), ' ', '')) = LOWER(REPLACE(REPLACE(u.username, '.', ''), ' ', ''))
+            ORDER BY COALESCE(i.studying_year, 999), u.id ASC
+        `);
         const [attendanceRows] = await pool.query(
             'SELECT user_id, attendance_date FROM attendance WHERE attendance_date BETWEEN ? AND ?',
             [minDateKey, todayKey]
@@ -840,6 +956,7 @@ app.get('/api/admin/attendance', async (req, res) => {
             return {
                 id: user.id,
                 username: user.username,
+                studying_year: user.studying_year,
                 attended_days: attendedDays,
                 od_days: excusedOdDays,
                 working_days: totalWorkingDays,
@@ -912,6 +1029,213 @@ app.post('/api/admin/attendance-od', async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Server error saving OD' });
+    }
+});
+
+app.get('/api/admin/attendance/monthly-export', async (req, res) => {
+    try {
+        const requestedMonth = req.query.month || new Date().toISOString().slice(0, 7);
+        if (!/^\d{4}-\d{2}$/.test(requestedMonth)) {
+            return res.status(400).json({ error: 'Month must be in YYYY-MM format' });
+        }
+
+        const todayKey = new Date().toISOString().slice(0, 10);
+        const monthStart = `${requestedMonth}-01`;
+        const monthEndDate = new Date(`${monthStart}T00:00:00`);
+        monthEndDate.setMonth(monthEndDate.getMonth() + 1);
+        monthEndDate.setDate(0);
+        const monthEnd = monthEndDate.toISOString().slice(0, 10);
+        const exportEnd = requestedMonth === todayKey.slice(0, 7) && todayKey < monthEnd ? todayKey : monthEnd;
+
+        const workingDateKeys = await getWorkingDateKeys(monthStart, exportEnd);
+        const workingDateSet = new Set(workingDateKeys);
+        const totalWorkingDays = workingDateKeys.length;
+
+        const [users] = await pool.query(`
+            SELECT
+                u.id,
+                u.username,
+                i.name as individual_name,
+                i.department,
+                i.year_of_study,
+                i.studying_year,
+                t.name as team_name
+            FROM users u
+            LEFT JOIN individuals i
+                ON LOWER(REPLACE(REPLACE(i.name, '.', ''), ' ', '')) = LOWER(REPLACE(REPLACE(u.username, '.', ''), ' ', ''))
+            LEFT JOIN teams t ON i.team_id = t.id
+            ORDER BY COALESCE(i.studying_year, 999), i.name, u.username
+        `);
+        const [attendanceRows] = await pool.query(
+            'SELECT user_id, attendance_date FROM attendance WHERE attendance_date BETWEEN ? AND ?',
+            [monthStart, exportEnd]
+        );
+        const [odRows] = await pool.query(
+            'SELECT user_id, od_date FROM attendance_od WHERE od_date BETWEEN ? AND ?',
+            [monthStart, exportEnd]
+        );
+
+        const attendanceByUser = new Map();
+        attendanceRows.forEach(row => {
+            const dateKey = toDateKey(row.attendance_date);
+            if (!workingDateSet.has(dateKey)) return;
+            const userKey = String(row.user_id);
+            if (!attendanceByUser.has(userKey)) attendanceByUser.set(userKey, new Set());
+            attendanceByUser.get(userKey).add(dateKey);
+        });
+
+        const odByUser = new Map();
+        odRows.forEach(row => {
+            const dateKey = toDateKey(row.od_date);
+            if (!workingDateSet.has(dateKey)) return;
+            const userKey = String(row.user_id);
+            if (!odByUser.has(userKey)) odByUser.set(userKey, new Set());
+            odByUser.get(userKey).add(dateKey);
+        });
+
+        const headers = [
+            'Studying Year',
+            'Name',
+            'Username',
+            'Team',
+            'Department',
+            'Month',
+            'Working Days',
+            'Attended Days',
+            'OD Days',
+            'Effective Present',
+            'Attendance Percentage'
+        ];
+
+        const rows = users.map(user => {
+            const userKey = String(user.id);
+            const attendedDates = attendanceByUser.get(userKey) || new Set();
+            const odDates = odByUser.get(userKey) || new Set();
+            const odDays = [...odDates].filter(dateKey => !attendedDates.has(dateKey)).length;
+            const attendedDays = attendedDates.size;
+            const effectivePresent = attendedDays + odDays;
+            const percentage = totalWorkingDays === 0 ? 100 : Math.round((effectivePresent / totalWorkingDays) * 100);
+
+            return [
+                user.studying_year || '',
+                user.individual_name || user.username,
+                user.username,
+                user.team_name || '',
+                user.department || user.year_of_study || '',
+                requestedMonth,
+                totalWorkingDays,
+                attendedDays,
+                odDays,
+                effectivePresent,
+                `${percentage}%`
+            ];
+        });
+
+        const csv = [headers, ...rows].map(row => row.map(escapeCsv).join(',')).join('\n');
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="monthly-attendance-${requestedMonth}.csv"`);
+        res.send(csv);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error exporting monthly attendance' });
+    }
+});
+
+app.get('/api/admin/attendance/weekly-export', async (req, res) => {
+    try {
+        const requestedWeek = req.query.week || '';
+        const weekRange = getIsoWeekRange(requestedWeek);
+        if (!weekRange) {
+            return res.status(400).json({ error: 'Week must be in YYYY-Www format' });
+        }
+
+        const todayKey = new Date().toISOString().slice(0, 10);
+        const exportEnd = weekRange.startKey <= todayKey && todayKey < weekRange.endKey ? todayKey : weekRange.endKey;
+        const workingDateKeys = weekRange.startKey <= exportEnd ? await getWorkingDateKeys(weekRange.startKey, exportEnd) : [];
+        const workingDateSet = new Set(workingDateKeys);
+
+        const [users] = await pool.query(`
+            SELECT
+                u.id,
+                u.username,
+                i.name as individual_name,
+                i.department,
+                i.year_of_study,
+                i.studying_year,
+                t.name as team_name
+            FROM users u
+            LEFT JOIN individuals i
+                ON LOWER(REPLACE(REPLACE(i.name, '.', ''), ' ', '')) = LOWER(REPLACE(REPLACE(u.username, '.', ''), ' ', ''))
+            LEFT JOIN teams t ON i.team_id = t.id
+            ORDER BY COALESCE(i.studying_year, 999), i.name, u.username
+        `);
+        const [attendanceRows] = await pool.query(
+            'SELECT user_id, attendance_date FROM attendance WHERE attendance_date BETWEEN ? AND ?',
+            [weekRange.startKey, exportEnd]
+        );
+        const [odRows] = await pool.query(
+            'SELECT user_id, od_date FROM attendance_od WHERE od_date BETWEEN ? AND ?',
+            [weekRange.startKey, exportEnd]
+        );
+
+        const attendanceByUser = new Map();
+        attendanceRows.forEach(row => {
+            const dateKey = toDateKey(row.attendance_date);
+            if (!workingDateSet.has(dateKey)) return;
+            const userKey = String(row.user_id);
+            if (!attendanceByUser.has(userKey)) attendanceByUser.set(userKey, new Set());
+            attendanceByUser.get(userKey).add(dateKey);
+        });
+
+        const odByUser = new Map();
+        odRows.forEach(row => {
+            const dateKey = toDateKey(row.od_date);
+            if (!workingDateSet.has(dateKey)) return;
+            const userKey = String(row.user_id);
+            if (!odByUser.has(userKey)) odByUser.set(userKey, new Set());
+            odByUser.get(userKey).add(dateKey);
+        });
+
+        const headers = [
+            'Studying Year',
+            'Name',
+            'Username',
+            'Team',
+            'Department',
+            ...workingDateKeys.map(formatDateDayLabel),
+            'Weekly Percentage'
+        ];
+
+        const rows = users.map(user => {
+            const userKey = String(user.id);
+            const attendedDates = attendanceByUser.get(userKey) || new Set();
+            const odDates = odByUser.get(userKey) || new Set();
+            const statusCells = workingDateKeys.map(dateKey => {
+                if (attendedDates.has(dateKey)) return 'Present';
+                if (odDates.has(dateKey)) return 'OD';
+                return 'Absent';
+            });
+            const effectivePresent = statusCells.filter(status => status === 'Present' || status === 'OD').length;
+            const percentage = workingDateKeys.length === 0 ? 100 : Math.round((effectivePresent / workingDateKeys.length) * 100);
+
+            return [
+                user.studying_year || '',
+                user.individual_name || user.username,
+                user.username,
+                user.team_name || '',
+                user.department || user.year_of_study || '',
+                ...statusCells,
+                `${percentage}%`
+            ];
+        });
+
+        const csv = [headers, ...rows].map(row => row.map(escapeCsv).join(',')).join('\n');
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="weekly-attendance-${requestedWeek}.csv"`);
+        res.send(csv);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error exporting weekly attendance' });
     }
 });
 

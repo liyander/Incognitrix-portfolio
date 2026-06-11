@@ -205,7 +205,7 @@ function IndividualProfile({ individualId, projects, onNavigateToProject, onNavi
                 </div>
                 
                 {/* Key Metrics */}
-                <div className="grid grid-cols-3 gap-4 border-t border-outline-variant/20 pt-6">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 border-t border-outline-variant/20 pt-6">
                   <div>
                     <p className="font-label text-[10px] text-on-surface-variant tracking-widest uppercase mb-1">ACHIEVEMENTS</p>
                     <p className="font-headline text-2xl font-bold text-on-surface">{achievements.length}</p>
@@ -217,6 +217,10 @@ function IndividualProfile({ individualId, projects, onNavigateToProject, onNavi
                   <div>
                     <p className="font-label text-[10px] text-on-surface-variant tracking-widest uppercase mb-1">YEAR/EXP</p>
                     <p className="font-headline text-xl font-bold text-error">{individual.year_of_study || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <p className="font-label text-[10px] text-on-surface-variant tracking-widest uppercase mb-1">STUDY YEAR</p>
+                    <p className="font-headline text-xl font-bold text-secondary">{individual.studying_year ? `Year ${individual.studying_year}` : 'N/A'}</p>
                   </div>
                 </div>
               </div>

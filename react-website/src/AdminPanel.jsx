@@ -10,6 +10,16 @@ const CVES_API_URL = '/api/cves';
 const ACHIEVEMENTS_API_URL = '/api/achievements';
 const UPCOMING_CTFS_API_URL = '/api/upcoming-ctfs';
 
+const getCurrentWeekValue = () => {
+  const current = new Date();
+  const target = new Date(Date.UTC(current.getFullYear(), current.getMonth(), current.getDate()));
+  const dayNumber = target.getUTCDay() || 7;
+  target.setUTCDate(target.getUTCDate() + 4 - dayNumber);
+  const yearStart = new Date(Date.UTC(target.getUTCFullYear(), 0, 1));
+  const weekNumber = Math.ceil((((target - yearStart) / 86400000) + 1) / 7);
+  return `${target.getUTCFullYear()}-W${String(weekNumber).padStart(2, '0')}`;
+};
+
 function AdminPanel({ onBack, adminUser, onLogout }) {
   const [activeAdminView, setActiveAdminView] = useState('dashboard'); // 'dashboard' | 'projects-list' | 'add-project' | 'teams-list' | 'add-team' | 'individuals-list' | 'add-individual' | 'cves-list' | 'add-cve' | 'achievements-list' | 'add-achievement' | 'admin-settings'
   const [editingId, setEditingId] = useState(null);
@@ -38,7 +48,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
   const [teamFormData, setTeamFormData] = useState({ name: '', description: '', technical_summary: '', current_objective: '' });
   
   const [individualFormData, setIndividualFormData] = useState({
-    name: '', role: '', team_id: '', department: '', year_of_study: '', daily_work: '', image: '',
+    name: '', role: '', team_id: '', department: '', year_of_study: '', studying_year: '', daily_work: '', image: '',
     achievements: [], certificates: [], research_work: []
   });
 
@@ -47,6 +57,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
   const [ctfFormData, setCtfFormData] = useState({ title: '', url: '', start_time: '', end_time: '', format: 'Jeopardy', location: 'Online', description: '' });
   const [holidayFormData, setHolidayFormData] = useState({ holiday_date: '', title: '', holiday_type: 'Institute Holiday' });
   const [odFormData, setOdFormData] = useState({ user_id: '', od_date: '', reason: '' });
+  const [attendanceExportWeek, setAttendanceExportWeek] = useState(getCurrentWeekValue());
 
   const showAlert = (message, tone = 'info') => {
     setDialogState({ type: 'alert', tone, title: tone === 'error' ? 'Action Failed' : 'System Notice', message });
@@ -231,6 +242,28 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
     return date.toLocaleDateString('en-CA');
   };
 
+  const formatCalendarMonth = (value) => {
+    if (!value) return 'CURRENT MONTH';
+    const date = new Date(`${value}-01T00:00:00`);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }).toUpperCase();
+  };
+
+  const getCalendarStatusClass = (status) => {
+    switch (status) {
+      case 'present':
+        return 'border-emerald-400/50 bg-emerald-500/20 text-emerald-200';
+      case 'absent':
+        return 'border-red-400/50 bg-red-500/20 text-red-200';
+      case 'od':
+        return 'border-yellow-300/60 bg-yellow-400/20 text-yellow-100';
+      case 'upcoming':
+        return 'border-outline/20 bg-surface-container text-outline';
+      default:
+        return 'border-outline/10 bg-background/60 text-outline/60';
+    }
+  };
+
   const handleImageUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -335,6 +368,11 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
       console.error('Failed to save OD', err);
       showAlert('Failed to save OD. Check console.');
     }
+  };
+
+  const handleDownloadWeeklyAttendance = () => {
+    const week = attendanceExportWeek || getCurrentWeekValue();
+    window.open(`/api/admin/attendance/weekly-export?week=${encodeURIComponent(week)}`, '_blank');
   };
 
   const formatDateTimeForDisplay = (value) => {
@@ -554,7 +592,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
       fetchIndividuals();
       showAlert(`Individual ${editingId ? 'Updated' : 'Added'} Successfully!`);
       setIndividualFormData({
-        name: '', role: '', team_id: '', department: '', year_of_study: '', daily_work: '', image: '',
+        name: '', role: '', team_id: '', department: '', year_of_study: '', studying_year: '', daily_work: '', image: '',
         achievements: [], certificates: [], research_work: []
       });
       setEditingId(null);
@@ -977,6 +1015,25 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
             </div>
             <p className="font-mono text-sm text-on-surface-variant mb-6">Operative check-in status mapping to tracking database. Sundays, first Saturdays, third Saturdays, holidays, and approved OD are handled in the calculation.</p>
 
+            <div className="mb-6 bg-background border border-outline/20 rounded p-4 flex flex-col md:flex-row md:items-end justify-between gap-4">
+              <div>
+                <label className="text-outline block mb-1 font-mono text-xs uppercase">Weekly Report</label>
+                <input
+                  type="week"
+                  value={attendanceExportWeek}
+                  onChange={(e) => setAttendanceExportWeek(e.target.value)}
+                  className="bg-surface-container-low border border-outline/30 rounded p-2 text-on-surface focus:border-primary focus:outline-none font-mono text-xs"
+                />
+              </div>
+              <button
+                onClick={handleDownloadWeeklyAttendance}
+                className="bg-primary/20 text-primary border border-primary/40 rounded px-4 py-2 font-mono text-xs font-bold hover:bg-primary/30 transition-colors flex items-center justify-center gap-2"
+              >
+                <span className="material-symbols-outlined text-sm">download</span>
+                DOWNLOAD WEEKLY ATTENDANCE
+              </button>
+            </div>
+
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-6">
               <form onSubmit={handleHolidaySubmit} className="bg-background border border-outline/20 rounded p-4 grid grid-cols-1 md:grid-cols-4 gap-3 font-mono text-xs">
                 <div>
@@ -1046,6 +1103,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                   <tr className="border-b border-outline/30 text-outline">
                     <th className="pb-3 px-4">User ID</th>
                     <th className="pb-3 px-4">Operative</th>
+                    <th className="pb-3 px-4 text-center">Year</th>
                     <th className="pb-3 px-4 text-center">Total Attendances</th>
                     <th className="pb-3 px-4 text-center">OD</th>
                     <th className="pb-3 px-4 text-center">Working Days</th>
@@ -1056,13 +1114,14 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                 <tbody>
                   {attendanceStats.length === 0 ? (
                     <tr>
-                      <td colSpan="7" className="text-center py-6 text-outline">No attendance records found in the database.</td>
+                      <td colSpan="8" className="text-center py-6 text-outline">No attendance records found in the database.</td>
                     </tr>
                   ) : (
                     attendanceStats.map(stat => (
                       <tr key={stat.id} className="border-b border-outline/10 hover:bg-surface-container transition-colors">
                         <td className="py-4 px-4 text-primary-container">{stat.id}</td>
                         <td className="py-4 px-4 font-bold text-on-surface uppercase">{stat.username}</td>
+                        <td className="py-4 px-4 text-center">{stat.studying_year ? `Year ${stat.studying_year}` : 'N/A'}</td>
                         <td className="py-4 px-4 text-center">{stat.attended_days}</td>
                         <td className="py-4 px-4 text-center">{stat.od_days || 0}</td>
                         <td className="py-4 px-4 text-center">{stat.working_days || 0}</td>
@@ -1433,7 +1492,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
             <button 
               onClick={() => {
                 setIndividualFormData({
-                  name: '', role: '', team_id: '', department: '', year_of_study: '', daily_work: '', image: '',
+                  name: '', role: '', team_id: '', department: '', year_of_study: '', studying_year: '', daily_work: '', image: '',
                   achievements: [], certificates: [], research_work: []
                 });
                 setEditingId(null);
@@ -1469,8 +1528,8 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                   </div>
                   <div className="flex items-center gap-2 mt-4 lg:mt-0 sm:gap-6">
                     <div className="text-right hidden sm:block">
-                      <div className="font-mono text-[10px] text-outline mb-0.5">YEAR</div>
-                      <div className="font-mono text-xs text-on-surface uppercase">{ind.year_of_study || 'N/A'}</div>
+                      <div className="font-mono text-[10px] text-outline mb-0.5">STUDYING YEAR</div>
+                      <div className="font-mono text-xs text-on-surface uppercase">{ind.studying_year ? `YEAR ${ind.studying_year}` : (ind.year_of_study || 'N/A')}</div>
                     </div>
                     <button 
                       onClick={(e) => {
@@ -1554,6 +1613,9 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
             const detailCertificates = parseJsonArray(selectedIndividual.certificates);
             const detailResearch = parseJsonArray(selectedIndividual.research_work);
             const workTimeline = Array.isArray(selectedIndividual.work_timeline) ? selectedIndividual.work_timeline : [];
+            const attendanceCalendar = Array.isArray(selectedIndividual.attendance_calendar) ? selectedIndividual.attendance_calendar : [];
+            const firstCalendarDate = attendanceCalendar[0]?.date ? new Date(`${attendanceCalendar[0].date}T00:00:00`) : null;
+            const leadingCalendarBlanks = firstCalendarDate && !Number.isNaN(firstCalendarDate.getTime()) ? firstCalendarDate.getDay() : 0;
 
             return (
               <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
@@ -1585,6 +1647,10 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                     <div className="bg-surface-container-low border border-outline/10 p-3 rounded">
                       <div className="text-outline text-[10px] uppercase mb-1">Year / Experience</div>
                       <div className="text-on-surface">{selectedIndividual.year_of_study || 'N/A'}</div>
+                    </div>
+                    <div className="bg-surface-container-low border border-outline/10 p-3 rounded">
+                      <div className="text-outline text-[10px] uppercase mb-1">Studying Year</div>
+                      <div className="text-on-surface">{selectedIndividual.studying_year ? `Year ${selectedIndividual.studying_year}` : 'N/A'}</div>
                     </div>
                     <div className="bg-surface-container-low border border-outline/10 p-3 rounded">
                       <div className="text-outline text-[10px] uppercase mb-1">Records</div>
@@ -1658,6 +1724,54 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                       <span className="text-outline shrink-0">TODAY</span>
                       <span className="animate-pulse">_</span>
                     </div>
+                  </div>
+                </section>
+
+                <section className="xl:col-span-12 bg-background border border-outline/20 rounded overflow-hidden">
+                  <div className="bg-surface-bright px-5 py-4 border-b border-outline/20 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <span className="material-symbols-outlined text-[18px] text-primary">calendar_month</span>
+                      <span className="font-mono text-xs text-on-surface-variant tracking-widest uppercase">ATTENDANCE_CALENDAR :: {formatCalendarMonth(selectedIndividual.attendance_calendar_month)}</span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3 font-mono text-[10px] text-outline">
+                      <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-500/70"></span>PRESENT</span>
+                      <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-red-500/70"></span>ABSENT</span>
+                      <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-yellow-400/70"></span>OD</span>
+                      <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-outline/30"></span>OFF / UPCOMING</span>
+                    </div>
+                  </div>
+
+                  <div className="p-5">
+                    <div className="grid grid-cols-7 gap-2 mb-2 font-mono text-[10px] text-outline text-center uppercase">
+                      {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
+                        <div key={day}>{day}</div>
+                      ))}
+                    </div>
+
+                    {attendanceCalendar.length === 0 ? (
+                      <div className="border border-outline/10 rounded p-6 text-center font-mono text-xs text-outline">No attendance calendar data available.</div>
+                    ) : (
+                      <div className="grid grid-cols-7 gap-2">
+                        {Array.from({ length: leadingCalendarBlanks }).map((_, idx) => (
+                          <div key={`blank-${idx}`} className="aspect-square rounded border border-transparent"></div>
+                        ))}
+                        {attendanceCalendar.map(day => (
+                          <div
+                            key={day.date}
+                            title={`${day.date} - ${day.label}`}
+                            className={`aspect-square min-h-14 rounded border p-2 flex flex-col justify-between transition-colors ${getCalendarStatusClass(day.status)}`}
+                          >
+                            <div className="flex items-center justify-between gap-1">
+                              <span className="font-mono text-sm font-bold">{String(Number(day.date.slice(8, 10)))}</span>
+                              <span className="font-mono text-[9px] uppercase opacity-80">{day.day}</span>
+                            </div>
+                            <div className="font-mono text-[9px] uppercase truncate">
+                              {day.status === 'present' ? 'Present' : day.status === 'absent' ? 'Absent' : day.status === 'od' ? 'OD' : day.status === 'upcoming' ? 'Next' : 'Off'}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </section>
 
@@ -1747,6 +1861,19 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                 <label className="text-outline block mb-1">Year of Study / Experience</label>
                 <input name="year_of_study" value={individualFormData.year_of_study} onChange={handleIndividualChange} className="w-full bg-background border border-outline/30 rounded p-2.5 text-on-surface focus:border-primary focus:outline-none transition-colors" placeholder="e.g. 3rd Year" />
               </div>
+              <div>
+                <label className="text-outline block mb-1">Studying Year</label>
+                <select name="studying_year" value={individualFormData.studying_year || ''} onChange={handleIndividualChange} className="w-full bg-background border border-outline/30 rounded p-2.5 text-on-surface focus:border-primary focus:outline-none transition-colors">
+                  <option value="">-- Select Year --</option>
+                  <option value="1">1st Year</option>
+                  <option value="2">2nd Year</option>
+                  <option value="3">3rd Year</option>
+                  <option value="4">4th Year</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               <div>
                 <label className="text-outline block mb-1">Image Upload</label>
                 <input type="file" accept="image/*" onChange={handleImageUpload} className="w-full bg-background border border-outline/30 rounded p-2 text-on-surface focus:border-primary focus:outline-none transition-colors" />
