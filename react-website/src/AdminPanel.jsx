@@ -173,7 +173,15 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
     try {
       const response = await fetch('/api/admin/attendance');
       const data = await response.json();
-      setAttendanceStats(data);
+      const uniqueStats = [];
+      const seenIds = new Set();
+      (Array.isArray(data) ? data : []).forEach(stat => {
+        const key = String(stat.id);
+        if (seenIds.has(key)) return;
+        seenIds.add(key);
+        uniqueStats.push(stat);
+      });
+      setAttendanceStats(uniqueStats);
     } catch (err) {
       console.error('Failed to fetch attendance', err);
     }

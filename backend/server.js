@@ -1109,11 +1109,15 @@ app.get('/api/admin/attendance', async (req, res) => {
         const totalWorkingDays = workingDateKeys.length;
 
         const [users] = await pool.query(`
-            SELECT u.id, u.username, i.studying_year
+            SELECT
+                u.id,
+                u.username,
+                MIN(i.studying_year) as studying_year
             FROM users u
             LEFT JOIN individuals i
                 ON i.user_id = u.id
-            ORDER BY COALESCE(i.studying_year, 999), u.id ASC
+            GROUP BY u.id, u.username
+            ORDER BY COALESCE(MIN(i.studying_year), 999), u.id ASC
         `);
         const [attendanceRows] = await pool.query(
             'SELECT user_id, attendance_date FROM attendance WHERE attendance_date BETWEEN ? AND ?',
