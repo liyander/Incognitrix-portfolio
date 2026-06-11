@@ -1871,7 +1871,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                       <span className="material-symbols-outlined text-[18px] text-primary">calendar_month</span>
                       <span className="font-mono text-xs text-on-surface-variant tracking-widest uppercase">ATTENDANCE_CALENDAR :: {formatCalendarMonth(selectedIndividual.attendance_calendar_month)}</span>
                       <span className="font-mono text-[10px] text-outline uppercase border border-outline/20 rounded px-2 py-1">
-                        {selectedIndividual.attendance_calendar_source === 'sheet_activity' ? 'SHEET ACTIVITY FALLBACK' : 'ATTENDANCE DB'}
+                        {selectedIndividual.attendance_calendar_source === 'no_user_match' ? 'NO USER ID MATCH' : `ATTENDANCE ${selectedIndividual.attendance_calendar_source || 'DB'}`}
                       </span>
                     </div>
                     <div className="flex flex-col sm:flex-row sm:items-center gap-3">

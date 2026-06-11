@@ -444,33 +444,19 @@ app.get('/api/individuals/:id', async (req, res) => {
         const workingDateKeys = await getWorkingDateKeys(monthStart, statusEnd);
         const workingDateSet = new Set(workingDateKeys);
         const individual = rows[0];
-        const attendanceUserKeys = [
-            individual.attendance_user_id,
-            individual.id,
-            individual.name,
-            normalizePersonKey(individual.name)
-        ].filter(Boolean).map(String);
+        const attendanceUserId = individual.attendance_user_id ? String(individual.attendance_user_id) : null;
 
-        const [attendanceRows] = attendanceUserKeys.length > 0 ? await pool.query(
-            'SELECT attendance_date FROM attendance WHERE user_id IN (?) AND attendance_date BETWEEN ? AND ?',
-            [attendanceUserKeys, monthStart, statusEnd]
+        const [attendanceRows] = attendanceUserId ? await pool.query(
+            'SELECT attendance_date FROM attendance WHERE user_id = ? AND attendance_date BETWEEN ? AND ?',
+            [attendanceUserId, monthStart, statusEnd]
         ) : [[]];
-        const [odRows] = attendanceUserKeys.length > 0 ? await pool.query(
-            'SELECT od_date, reason FROM attendance_od WHERE user_id IN (?) AND od_date BETWEEN ? AND ?',
-            [attendanceUserKeys, monthStart, statusEnd]
+        const [odRows] = attendanceUserId ? await pool.query(
+            'SELECT od_date, reason FROM attendance_od WHERE user_id = ? AND od_date BETWEEN ? AND ?',
+            [attendanceUserId, monthStart, statusEnd]
         ) : [[]];
 
         const presentDates = new Set(attendanceRows.map(row => toDateKey(row.attendance_date)));
         const odByDate = new Map(odRows.map(row => [toDateKey(row.od_date), row.reason || 'On duty']));
-        const hasRecordedAttendance = presentDates.size > 0 || odByDate.size > 0;
-        if (!hasRecordedAttendance) {
-            parseJsonArray(individual.achievements).forEach(item => {
-                const dateKey = parseLooseDateKey(item.date);
-                if (dateKey && workingDateSet.has(dateKey)) {
-                    presentDates.add(dateKey);
-                }
-            });
-        }
         const attendanceCalendar = calendarDates.map(dateKey => {
             const date = new Date(`${dateKey}T00:00:00`);
             let status = 'off';
@@ -512,7 +498,7 @@ app.get('/api/individuals/:id', async (req, res) => {
             linked_achievements: linkedAchievements,
             attendance_calendar: attendanceCalendar,
             attendance_calendar_month: requestedMonth,
-            attendance_calendar_source: hasRecordedAttendance ? 'attendance' : 'sheet_activity'
+            attendance_calendar_source: attendanceUserId ? `users.id:${attendanceUserId}` : 'no_user_match'
         });
     } catch (err) {
         console.error(err);
@@ -1024,7 +1010,6 @@ const buildAttendanceStatusCsv = async (startKey, endKey, percentageHeader = 'At
             i.department,
             i.year_of_study,
             i.studying_year,
-            i.achievements,
             u.id as user_id,
             u.username
         FROM individuals i
@@ -1069,25 +1054,9 @@ const buildAttendanceStatusCsv = async (startKey, endKey, percentageHeader = 'At
     ];
 
     const rows = people.map(person => {
-        const personKeys = [
-            person.user_id,
-            person.individual_id,
-            person.username,
-            person.individual_name,
-            normalizePersonKey(person.individual_name)
-        ].filter(Boolean).map(String);
-        const attendedDates = new Set();
-        const odDates = new Set();
-
-        personKeys.forEach(key => {
-            (attendanceByUser.get(key) || new Set()).forEach(dateKey => attendedDates.add(dateKey));
-            (odByUser.get(key) || new Set()).forEach(dateKey => odDates.add(dateKey));
-        });
-
-        parseJsonArray(person.achievements).forEach(item => {
-            const dateKey = parseLooseDateKey(item.date);
-            if (dateKey && workingDateSet.has(dateKey)) attendedDates.add(dateKey);
-        });
+        const userKey = person.user_id ? String(person.user_id) : null;
+        const attendedDates = userKey ? (attendanceByUser.get(userKey) || new Set()) : new Set();
+        const odDates = userKey ? (odByUser.get(userKey) || new Set()) : new Set();
 
         const statusCells = workingDateKeys.map(dateKey => {
             if (attendedDates.has(dateKey)) return 'Present';
