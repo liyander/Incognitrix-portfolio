@@ -83,8 +83,20 @@ function IndividualProfile({ individualId, projects, onNavigateToProject, onNavi
     return <div className="text-center text-error font-label h-64 flex items-center justify-center">PROFILE NOT FOUND</div>;
   }
 
-  let achievements = [];
-  try { achievements = typeof individual.achievements === 'string' ? JSON.parse(individual.achievements) : individual.achievements || []; } catch(e){}
+  const parseJsonArray = (value) => {
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string') {
+      try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (e) {
+        return [];
+      }
+    }
+    return [];
+  };
+
+  const achievements = parseJsonArray(individual.linked_achievements);
   let certificates = [];
   try { certificates = typeof individual.certificates === 'string' ? JSON.parse(individual.certificates) : individual.certificates || []; } catch(e){}
   let research_work = [];
@@ -260,15 +272,33 @@ function IndividualProfile({ individualId, projects, onNavigateToProject, onNavi
                   AWARDS & RECOGNITION
                 </h3>
                 <div className="space-y-4">
-                  {achievements.map((ach, idx) => (
-                    <div key={idx} className="bg-surface-container-low border-l-2 border-secondary p-4 flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
+                  {achievements.map((ach, idx) => {
+                    const contributors = parseJsonArray(ach.contributors);
+                    return (
+                    <div
+                      key={ach.id || idx}
+                      onClick={() => setSelectedDetail({
+                        icon: 'emoji_events',
+                        title: ach.title || 'Achievement',
+                        description: ach.description || 'Verified achievement logged in the lab record.',
+                        meta: [
+                          { label: 'DATE', value: ach.date ? formatWorkDate(ach.date) : 'N/A' },
+                          { label: 'CONTRIBUTORS', value: contributors.length ? contributors.join(', ') : individual.name }
+                        ]
+                      })}
+                      className="bg-surface-container-low border-l-2 border-secondary p-4 flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center cursor-pointer hover:bg-surface-container-highest transition-colors"
+                    >
                       <div>
-                        <h4 className="font-headline text-md font-bold text-on-surface">{ach.title || ach.ACHIEVEMENT || 'Honorable Mention'}</h4>
-                        <p className="font-body text-xs text-on-surface-variant mt-1">{ach.description || 'Verified achievement logged in personnel file.'}</p>
+                        <h4 className="font-headline text-md font-bold text-on-surface">{ach.title || 'Achievement'}</h4>
+                        <p className="font-body text-xs text-on-surface-variant mt-1 line-clamp-2">{ach.description || 'Verified achievement logged in the lab record.'}</p>
+                        {contributors.length > 0 && (
+                          <p className="font-label text-[10px] text-outline mt-2 uppercase tracking-widest">Contributors: {contributors.join(', ')}</p>
+                        )}
                       </div>
-                      <span className="font-label text-[10px] text-secondary tracking-widest shrink-0 bg-secondary/10 px-2 py-1">{ach.date || 'LOGGED'}</span>
+                      <span className="font-label text-[10px] text-secondary tracking-widest shrink-0 bg-secondary/10 px-2 py-1">{ach.date ? formatWorkDate(ach.date) : 'LOGGED'}</span>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -297,34 +327,6 @@ function IndividualProfile({ individualId, projects, onNavigateToProject, onNavi
                           </div>
                         </div>
                         <button className="shrink-0 px-6 py-2 border border-outline-variant/30 text-primary font-headline text-[10px] font-bold tracking-widest uppercase hover:bg-primary/10 transition-colors">VERIFY_RECORD</button>
-                     </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Achievements */}
-            {achievements.length > 0 && (
-              <div className="bg-surface-container border border-outline-variant/10 mt-8">
-                <div className="px-6 py-4 border-b border-outline-variant/10 flex items-center justify-between">
-                  <h3 className="font-headline text-lg font-bold text-on-surface tracking-widest uppercase">HONORS_&_ACHIEVEMENTS</h3>
-                  <span className="font-label text-[10px] text-on-surface-variant tracking-widest uppercase">FILTER: ALL</span>
-                </div>
-                <div className="divide-y divide-outline-variant/10">
-                  {achievements.map((ach, idx) => (
-                       <div key={idx} onClick={() => setSelectedDetail({ icon: 'emoji_events', title: ach.title || ach.name, description: ach.description || 'Details regarding this achievement have been classified.', meta: [{ label: 'DATE', value: ach.date || 'N/A' }, { label: 'CATEGORY', value: 'HONOR/AWARD' }] })} className="p-6 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-surface-container-highest cursor-pointer transition-colors group">
-                        <div className="flex items-start gap-4">
-                          <div className="mt-1">
-                            <span className="material-symbols-outlined text-[24px] text-on-surface-variant group-hover:text-primary transition-colors">emoji_events</span>
-                          </div>
-                          <div>
-                            <h4 className="font-headline text-base font-bold text-on-surface mb-1 group-hover:text-primary transition-colors uppercase tracking-tight">{ach.title || ach.name}</h4>
-                            <p className="font-body text-xs text-on-surface-variant mb-2">{ach.description}</p>
-                            <div className="flex items-center gap-4 font-label text-[10px] text-on-surface-variant tracking-widest uppercase">
-                              <span>DATE: {ach.date || 'N/A'}</span>
-                            </div>
-                          </div>
-                        </div>
                      </div>
                   ))}
                 </div>

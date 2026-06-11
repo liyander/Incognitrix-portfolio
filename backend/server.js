@@ -461,13 +461,16 @@ app.get('/api/individuals/:id', async (req, res) => {
         ) : [[]];
 
         const presentDates = new Set(attendanceRows.map(row => toDateKey(row.attendance_date)));
-        parseJsonArray(individual.achievements).forEach(item => {
-            const dateKey = parseLooseDateKey(item.date);
-            if (dateKey && dateKey >= monthStart && dateKey <= statusEnd) {
-                presentDates.add(dateKey);
-            }
-        });
         const odByDate = new Map(odRows.map(row => [toDateKey(row.od_date), row.reason || 'On duty']));
+        const hasRecordedAttendance = presentDates.size > 0 || odByDate.size > 0;
+        if (!hasRecordedAttendance) {
+            parseJsonArray(individual.achievements).forEach(item => {
+                const dateKey = parseLooseDateKey(item.date);
+                if (dateKey && workingDateSet.has(dateKey)) {
+                    presentDates.add(dateKey);
+                }
+            });
+        }
         const attendanceCalendar = calendarDates.map(dateKey => {
             const date = new Date(`${dateKey}T00:00:00`);
             let status = 'off';
@@ -508,7 +511,8 @@ app.get('/api/individuals/:id', async (req, res) => {
             work_timeline: workTimeline,
             linked_achievements: linkedAchievements,
             attendance_calendar: attendanceCalendar,
-            attendance_calendar_month: requestedMonth
+            attendance_calendar_month: requestedMonth,
+            attendance_calendar_source: hasRecordedAttendance ? 'attendance' : 'sheet_activity'
         });
     } catch (err) {
         console.error(err);

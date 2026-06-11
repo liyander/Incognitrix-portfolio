@@ -92,6 +92,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
   const [odFormData, setOdFormData] = useState({ user_id: '', od_date: '', reason: '' });
   const [attendanceExportWeek, setAttendanceExportWeek] = useState(getCurrentWeekValue());
   const [attendanceRange, setAttendanceRange] = useState({ from: getMonthStartValue(), to: getCurrentDateValue() });
+  const [individualSearchQuery, setIndividualSearchQuery] = useState('');
 
   const showAlert = (message, tone = 'info') => {
     setDialogState({ type: 'alert', tone, title: tone === 'error' ? 'Action Failed' : 'System Notice', message });
@@ -254,6 +255,21 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
     if (ind.current_day_work) return ind.current_day_work;
     if (ind.daily_work) return ind.daily_work;
     return '';
+  };
+
+  const getFilteredIndividuals = () => {
+    const query = individualSearchQuery.trim().toLowerCase();
+    if (!query) return individuals;
+
+    return individuals.filter(ind => [
+      ind.name,
+      ind.role,
+      ind.department,
+      ind.year_of_study,
+      ind.studying_year ? `year ${ind.studying_year}` : '',
+      ind.team_name,
+      getCurrentDayWork(ind)
+    ].some(value => String(value || '').toLowerCase().includes(query)));
   };
 
   const parseJsonArray = (value) => {
@@ -1604,13 +1620,35 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
             </button>
           </div>
 
+          <div className="bg-background border border-outline/20 rounded p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <label className="flex-1">
+              <div className="text-outline block mb-1 font-mono text-xs uppercase">Search Individuals</div>
+              <div className="relative">
+                <span className="material-symbols-outlined text-outline text-lg absolute left-3 top-1/2 -translate-y-1/2">search</span>
+                <input
+                  value={individualSearchQuery}
+                  onChange={(e) => setIndividualSearchQuery(e.target.value)}
+                  className="w-full bg-surface-container-low border border-outline/30 rounded py-2.5 pl-10 pr-3 text-on-surface focus:border-primary focus:outline-none font-mono text-sm"
+                  placeholder="Search by name, team, department, role, year, or work..."
+                />
+              </div>
+            </label>
+            <div className="font-mono text-xs text-outline">
+              {getFilteredIndividuals().length} / {individuals.length} SHOWN
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 gap-4">
             {individuals.length === 0 ? (
               <div className="bg-surface-container-low p-8 text-center rounded border border-outline/20">
                 <p className="text-outline font-mono text-sm">No individuals found. Database is currently empty.</p>
               </div>
+            ) : getFilteredIndividuals().length === 0 ? (
+              <div className="bg-surface-container-low p-8 text-center rounded border border-outline/20">
+                <p className="text-outline font-mono text-sm">No individuals match the current search.</p>
+              </div>
             ) : (
-              individuals.map(ind => (
+              getFilteredIndividuals().map(ind => (
                 <div
                   key={ind.id}
                   onClick={() => handleViewIndividual(ind)}
@@ -1832,6 +1870,9 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                     <div className="flex items-center gap-3">
                       <span className="material-symbols-outlined text-[18px] text-primary">calendar_month</span>
                       <span className="font-mono text-xs text-on-surface-variant tracking-widest uppercase">ATTENDANCE_CALENDAR :: {formatCalendarMonth(selectedIndividual.attendance_calendar_month)}</span>
+                      <span className="font-mono text-[10px] text-outline uppercase border border-outline/20 rounded px-2 py-1">
+                        {selectedIndividual.attendance_calendar_source === 'sheet_activity' ? 'SHEET ACTIVITY FALLBACK' : 'ATTENDANCE DB'}
+                      </span>
                     </div>
                     <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                       <div className="flex items-center gap-2">
