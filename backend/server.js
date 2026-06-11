@@ -415,8 +415,7 @@ app.get('/api/individuals/:id', async (req, res) => {
             FROM individuals i 
             LEFT JOIN teams t ON i.team_id = t.id
             LEFT JOIN individual_work_logs wl ON wl.individual_id = i.id AND wl.work_date = CURRENT_DATE
-            LEFT JOIN users u
-                ON LOWER(REPLACE(REPLACE(i.name, '.', ''), ' ', '')) = LOWER(REPLACE(REPLACE(u.username, '.', ''), ' ', ''))
+            LEFT JOIN users u ON u.id = i.id
             WHERE i.id = ?
         `, [req.params.id]);
         if (rows.length === 0) return res.status(404).json({ error: 'Individual not found' });
@@ -1013,8 +1012,7 @@ const buildAttendanceStatusCsv = async (startKey, endKey, percentageHeader = 'At
             u.id as user_id,
             u.username
         FROM individuals i
-        LEFT JOIN users u
-            ON LOWER(REPLACE(REPLACE(i.name, '.', ''), ' ', '')) = LOWER(REPLACE(REPLACE(u.username, '.', ''), ' ', ''))
+        LEFT JOIN users u ON u.id = i.id
         ORDER BY COALESCE(i.studying_year, 999), i.name
     `);
     const [attendanceRows] = await pool.query(
@@ -1094,7 +1092,7 @@ app.get('/api/admin/attendance', async (req, res) => {
             SELECT u.id, u.username, i.studying_year
             FROM users u
             LEFT JOIN individuals i
-                ON LOWER(REPLACE(REPLACE(i.name, '.', ''), ' ', '')) = LOWER(REPLACE(REPLACE(u.username, '.', ''), ' ', ''))
+                ON i.id = u.id
             ORDER BY COALESCE(i.studying_year, 999), u.id ASC
         `);
         const [attendanceRows] = await pool.query(
@@ -1242,7 +1240,7 @@ app.get('/api/admin/attendance/monthly-export', async (req, res) => {
                 t.name as team_name
             FROM users u
             LEFT JOIN individuals i
-                ON LOWER(REPLACE(REPLACE(i.name, '.', ''), ' ', '')) = LOWER(REPLACE(REPLACE(u.username, '.', ''), ' ', ''))
+                ON i.id = u.id
             LEFT JOIN teams t ON i.team_id = t.id
             ORDER BY COALESCE(i.studying_year, 999), i.name, u.username
         `);
