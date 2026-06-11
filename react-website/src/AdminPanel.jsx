@@ -25,6 +25,33 @@ const getCurrentMonthValue = () => {
   return `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}`;
 };
 
+const getCurrentDateValue = () => {
+  const current = new Date();
+  return `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
+};
+
+const getMonthStartValue = () => `${getCurrentMonthValue()}-01`;
+
+const MONTH_OPTIONS = [
+  ['01', 'January'],
+  ['02', 'February'],
+  ['03', 'March'],
+  ['04', 'April'],
+  ['05', 'May'],
+  ['06', 'June'],
+  ['07', 'July'],
+  ['08', 'August'],
+  ['09', 'September'],
+  ['10', 'October'],
+  ['11', 'November'],
+  ['12', 'December']
+];
+
+const getYearOptions = () => {
+  const currentYear = new Date().getFullYear();
+  return Array.from({ length: 6 }, (_, index) => currentYear - 4 + index);
+};
+
 function AdminPanel({ onBack, adminUser, onLogout }) {
   const [activeAdminView, setActiveAdminView] = useState('dashboard'); // 'dashboard' | 'projects-list' | 'add-project' | 'teams-list' | 'add-team' | 'individuals-list' | 'add-individual' | 'cves-list' | 'add-cve' | 'achievements-list' | 'add-achievement' | 'admin-settings'
   const [editingId, setEditingId] = useState(null);
@@ -64,6 +91,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
   const [holidayFormData, setHolidayFormData] = useState({ holiday_date: '', title: '', holiday_type: 'Institute Holiday' });
   const [odFormData, setOdFormData] = useState({ user_id: '', od_date: '', reason: '' });
   const [attendanceExportWeek, setAttendanceExportWeek] = useState(getCurrentWeekValue());
+  const [attendanceRange, setAttendanceRange] = useState({ from: getMonthStartValue(), to: getCurrentDateValue() });
 
   const showAlert = (message, tone = 'info') => {
     setDialogState({ type: 'alert', tone, title: tone === 'error' ? 'Action Failed' : 'System Notice', message });
@@ -389,6 +417,17 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
     window.open(`/api/admin/attendance/weekly-export?week=${encodeURIComponent(week)}`, '_blank');
   };
 
+  const handleDownloadRangeAttendance = () => {
+    const today = getCurrentDateValue();
+    const from = attendanceRange.from || getMonthStartValue();
+    const to = attendanceRange.to && attendanceRange.to <= today ? attendanceRange.to : today;
+    if (from > to) {
+      showAlert('From date cannot be after To date.', 'error');
+      return;
+    }
+    window.open(`/api/admin/attendance/range-export?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`, '_blank');
+  };
+
   const formatDateTimeForDisplay = (value) => {
     if (!value) return 'TBA';
     const date = new Date(value);
@@ -600,6 +639,12 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
     if (selectedIndividual?.id) {
       handleViewIndividual(selectedIndividual, month);
     }
+  };
+
+  const handleAttendanceMonthPartChange = (part, value) => {
+    const [year, month] = (selectedAttendanceMonth || getCurrentMonthValue()).split('-');
+    const nextMonth = part === 'year' ? `${value}-${month}` : `${year}-${value}`;
+    handleAttendanceMonthChange(nextMonth);
   };
 
   const handleIndividualSubmit = async (e) => {
@@ -1037,7 +1082,38 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
             </div>
             <p className="font-mono text-sm text-on-surface-variant mb-6">Operative check-in status mapping to tracking database. Sundays, first Saturdays, third Saturdays, holidays, and approved OD are handled in the calculation.</p>
 
-            <div className="mb-6 bg-background border border-outline/20 rounded p-4 flex flex-col md:flex-row md:items-end justify-between gap-4">
+            <div className="mb-6 bg-background border border-outline/20 rounded p-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="flex flex-col md:flex-row md:items-end gap-4">
+                <div>
+                  <label className="text-outline block mb-1 font-mono text-xs uppercase">From</label>
+                  <input
+                    type="date"
+                    value={attendanceRange.from}
+                    max={getCurrentDateValue()}
+                    onChange={(e) => setAttendanceRange({ ...attendanceRange, from: e.target.value })}
+                    className="bg-surface-container-low border border-outline/30 rounded p-2 text-on-surface focus:border-primary focus:outline-none font-mono text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="text-outline block mb-1 font-mono text-xs uppercase">To</label>
+                  <input
+                    type="date"
+                    value={attendanceRange.to}
+                    max={getCurrentDateValue()}
+                    onChange={(e) => setAttendanceRange({ ...attendanceRange, to: e.target.value })}
+                    className="bg-surface-container-low border border-outline/30 rounded p-2 text-on-surface focus:border-primary focus:outline-none font-mono text-xs"
+                  />
+                </div>
+                <button
+                  onClick={handleDownloadRangeAttendance}
+                  className="bg-secondary/20 text-secondary border border-secondary/40 rounded px-4 py-2 font-mono text-xs font-bold hover:bg-secondary/30 transition-colors flex items-center justify-center gap-2"
+                >
+                  <span className="material-symbols-outlined text-sm">download</span>
+                  DOWNLOAD RANGE
+                </button>
+              </div>
+
+              <div className="flex flex-col md:flex-row md:items-end lg:justify-end gap-4">
               <div>
                 <label className="text-outline block mb-1 font-mono text-xs uppercase">Weekly Report</label>
                 <input
@@ -1054,6 +1130,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                 <span className="material-symbols-outlined text-sm">download</span>
                 DOWNLOAD WEEKLY ATTENDANCE
               </button>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-6">
@@ -1631,13 +1708,14 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
               <p className="text-error font-mono text-sm">Individual file not available.</p>
             </div>
           ) : (() => {
-            const detailAchievements = normalizeDetailItems(selectedIndividual.achievements);
+            const detailAchievements = normalizeDetailItems(selectedIndividual.linked_achievements);
             const detailCertificates = normalizeDetailItems(selectedIndividual.certificates);
             const detailResearch = normalizeDetailItems(selectedIndividual.research_work);
             const workTimeline = Array.isArray(selectedIndividual.work_timeline) ? selectedIndividual.work_timeline : [];
             const attendanceCalendar = Array.isArray(selectedIndividual.attendance_calendar) ? selectedIndividual.attendance_calendar : [];
             const firstCalendarDate = attendanceCalendar[0]?.date ? new Date(`${attendanceCalendar[0].date}T00:00:00`) : null;
             const leadingCalendarBlanks = firstCalendarDate && !Number.isNaN(firstCalendarDate.getTime()) ? firstCalendarDate.getDay() : 0;
+            const [selectedYear, selectedMonth] = (selectedAttendanceMonth || getCurrentMonthValue()).split('-');
 
             return (
               <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
@@ -1756,12 +1834,26 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                       <span className="font-mono text-xs text-on-surface-variant tracking-widest uppercase">ATTENDANCE_CALENDAR :: {formatCalendarMonth(selectedIndividual.attendance_calendar_month)}</span>
                     </div>
                     <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                      <input
-                        type="month"
-                        value={selectedAttendanceMonth}
-                        onChange={(e) => handleAttendanceMonthChange(e.target.value)}
-                        className="bg-background border border-outline/30 rounded p-2 text-on-surface focus:border-primary focus:outline-none font-mono text-xs"
-                      />
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={selectedMonth}
+                          onChange={(e) => handleAttendanceMonthPartChange('month', e.target.value)}
+                          className="bg-background border border-outline/30 rounded p-2 text-on-surface focus:border-primary focus:outline-none font-mono text-xs"
+                        >
+                          {MONTH_OPTIONS.map(([value, label]) => (
+                            <option key={value} value={value}>{label}</option>
+                          ))}
+                        </select>
+                        <select
+                          value={selectedYear}
+                          onChange={(e) => handleAttendanceMonthPartChange('year', e.target.value)}
+                          className="bg-background border border-outline/30 rounded p-2 text-on-surface focus:border-primary focus:outline-none font-mono text-xs"
+                        >
+                          {getYearOptions().map(year => (
+                            <option key={year} value={year}>{year}</option>
+                          ))}
+                        </select>
+                      </div>
                       <div className="flex flex-wrap items-center gap-3 font-mono text-[10px] text-outline">
                         <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-500/70"></span>PRESENT</span>
                         <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-red-500/70"></span>ABSENT</span>

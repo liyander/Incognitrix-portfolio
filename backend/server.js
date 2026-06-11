@@ -30,6 +30,83 @@ const toJsonArray = (value) => {
     return JSON.stringify([value].filter(Boolean));
 };
 
+const parseJsonArray = (value) => {
+    if (!value) return [];
+    if (Array.isArray(value)) return value;
+    try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed : [];
+    } catch (err) {
+        return [];
+    }
+};
+
+const normalizePersonKey = (value) => String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+
+const getPersonMatchKeys = (value) => {
+    const text = String(value || '').toLowerCase();
+    const tokens = text.split(/[^a-z0-9]+/).filter(Boolean);
+    const nameTokens = tokens.filter(token => token.length > 1);
+    const keys = new Set([
+        normalizePersonKey(value),
+        nameTokens.join(''),
+        nameTokens.slice(0, 2).join('')
+    ].filter(Boolean));
+
+    [...keys].forEach(key => {
+        keys.add(key.replace('liyandar', 'liyander'));
+        keys.add(key.replace('liyander', 'liyandar'));
+    });
+
+    return [...keys];
+};
+
+const levenshteinDistance = (a, b) => {
+    if (a === b) return 0;
+    if (!a) return b.length;
+    if (!b) return a.length;
+
+    const previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+    for (let i = 0; i < a.length; i += 1) {
+        let current = [i + 1];
+        for (let j = 0; j < b.length; j += 1) {
+            current[j + 1] = Math.min(
+                current[j] + 1,
+                previous[j + 1] + 1,
+                previous[j] + (a[i] === b[j] ? 0 : 1)
+            );
+        }
+        previous.splice(0, previous.length, ...current);
+    }
+    return previous[b.length];
+};
+
+const isPersonMatch = (left, right) => {
+    const leftKeys = getPersonMatchKeys(left);
+    const rightKeys = getPersonMatchKeys(right);
+    return leftKeys.some(leftKey => rightKeys.some(rightKey => (
+        leftKey === rightKey ||
+        (leftKey.length > 4 && rightKey.length > 4 && (leftKey.includes(rightKey) || rightKey.includes(leftKey))) ||
+        (leftKey.length > 6 && rightKey.length > 6 && levenshteinDistance(leftKey, rightKey) <= 2)
+    )));
+};
+
+const parseLooseDateKey = (value) => {
+    if (!value) return null;
+    if (value instanceof Date) return formatDateKey(value);
+    const text = String(value).trim();
+
+    let match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+    if (match) return text;
+
+    match = /^(\d{2})-(\d{2})-(\d{4})$/.exec(text);
+    if (match) return `${match[3]}-${match[1]}-${match[2]}`;
+
+    return null;
+};
+
 // Database Connection
 const pool = mysql.createPool({
     host: process.env.DB_HOST || 'localhost',
@@ -366,18 +443,30 @@ app.get('/api/individuals/:id', async (req, res) => {
         const statusEnd = requestedMonth === todayKey.slice(0, 7) && todayKey < monthEnd ? todayKey : monthEnd;
         const workingDateKeys = await getWorkingDateKeys(monthStart, statusEnd);
         const workingDateSet = new Set(workingDateKeys);
-        const attendanceUserId = rows[0].attendance_user_id;
+        const individual = rows[0];
+        const attendanceUserKeys = [
+            individual.attendance_user_id,
+            individual.id,
+            individual.name,
+            normalizePersonKey(individual.name)
+        ].filter(Boolean).map(String);
 
-        const [attendanceRows] = attendanceUserId ? await pool.query(
-            'SELECT attendance_date FROM attendance WHERE user_id = ? AND attendance_date BETWEEN ? AND ?',
-            [attendanceUserId, monthStart, statusEnd]
+        const [attendanceRows] = attendanceUserKeys.length > 0 ? await pool.query(
+            'SELECT attendance_date FROM attendance WHERE user_id IN (?) AND attendance_date BETWEEN ? AND ?',
+            [attendanceUserKeys, monthStart, statusEnd]
         ) : [[]];
-        const [odRows] = attendanceUserId ? await pool.query(
-            'SELECT od_date, reason FROM attendance_od WHERE user_id = ? AND od_date BETWEEN ? AND ?',
-            [attendanceUserId, monthStart, statusEnd]
+        const [odRows] = attendanceUserKeys.length > 0 ? await pool.query(
+            'SELECT od_date, reason FROM attendance_od WHERE user_id IN (?) AND od_date BETWEEN ? AND ?',
+            [attendanceUserKeys, monthStart, statusEnd]
         ) : [[]];
 
         const presentDates = new Set(attendanceRows.map(row => toDateKey(row.attendance_date)));
+        parseJsonArray(individual.achievements).forEach(item => {
+            const dateKey = parseLooseDateKey(item.date);
+            if (dateKey && dateKey >= monthStart && dateKey <= statusEnd) {
+                presentDates.add(dateKey);
+            }
+        });
         const odByDate = new Map(odRows.map(row => [toDateKey(row.od_date), row.reason || 'On duty']));
         const attendanceCalendar = calendarDates.map(dateKey => {
             const date = new Date(`${dateKey}T00:00:00`);
@@ -408,9 +497,16 @@ app.get('/api/individuals/:id', async (req, res) => {
             };
         });
 
+        const [achievementRows] = await pool.query('SELECT * FROM achievements ORDER BY date DESC, id DESC');
+        const linkedAchievements = achievementRows.filter(achievement => {
+            const contributors = parseJsonArray(achievement.contributors);
+            return contributors.some(contributor => isPersonMatch(contributor, individual.name));
+        });
+
         res.json({
-            ...rows[0],
+            ...individual,
             work_timeline: workTimeline,
+            linked_achievements: linkedAchievements,
             attendance_calendar: attendanceCalendar,
             attendance_calendar_month: requestedMonth
         });
@@ -911,6 +1007,105 @@ const formatDateDayLabel = (dateKey) => {
     return `${day}-${month}-${year} ${dayName}`;
 };
 
+const buildAttendanceStatusCsv = async (startKey, endKey, percentageHeader = 'Attendance Percentage') => {
+    const todayKey = formatDateKey(new Date());
+    const exportEnd = endKey > todayKey ? todayKey : endKey;
+    const workingDateKeys = startKey <= exportEnd ? await getWorkingDateKeys(startKey, exportEnd) : [];
+    const workingDateSet = new Set(workingDateKeys);
+
+    const [people] = await pool.query(`
+        SELECT
+            i.id as individual_id,
+            i.name as individual_name,
+            i.department,
+            i.year_of_study,
+            i.studying_year,
+            i.achievements,
+            u.id as user_id,
+            u.username
+        FROM individuals i
+        LEFT JOIN users u
+            ON LOWER(REPLACE(REPLACE(i.name, '.', ''), ' ', '')) = LOWER(REPLACE(REPLACE(u.username, '.', ''), ' ', ''))
+        ORDER BY COALESCE(i.studying_year, 999), i.name
+    `);
+    const [attendanceRows] = await pool.query(
+        'SELECT user_id, attendance_date FROM attendance WHERE attendance_date BETWEEN ? AND ?',
+        [startKey, exportEnd]
+    );
+    const [odRows] = await pool.query(
+        'SELECT user_id, od_date FROM attendance_od WHERE od_date BETWEEN ? AND ?',
+        [startKey, exportEnd]
+    );
+
+    const attendanceByUser = new Map();
+    attendanceRows.forEach(row => {
+        const dateKey = toDateKey(row.attendance_date);
+        if (!workingDateSet.has(dateKey)) return;
+        const userKey = String(row.user_id);
+        if (!attendanceByUser.has(userKey)) attendanceByUser.set(userKey, new Set());
+        attendanceByUser.get(userKey).add(dateKey);
+    });
+
+    const odByUser = new Map();
+    odRows.forEach(row => {
+        const dateKey = toDateKey(row.od_date);
+        if (!workingDateSet.has(dateKey)) return;
+        const userKey = String(row.user_id);
+        if (!odByUser.has(userKey)) odByUser.set(userKey, new Set());
+        odByUser.get(userKey).add(dateKey);
+    });
+
+    const headers = [
+        'Studying Year',
+        'Name',
+        'Username',
+        'Department',
+        ...workingDateKeys.map(formatDateDayLabel),
+        percentageHeader
+    ];
+
+    const rows = people.map(person => {
+        const personKeys = [
+            person.user_id,
+            person.individual_id,
+            person.username,
+            person.individual_name,
+            normalizePersonKey(person.individual_name)
+        ].filter(Boolean).map(String);
+        const attendedDates = new Set();
+        const odDates = new Set();
+
+        personKeys.forEach(key => {
+            (attendanceByUser.get(key) || new Set()).forEach(dateKey => attendedDates.add(dateKey));
+            (odByUser.get(key) || new Set()).forEach(dateKey => odDates.add(dateKey));
+        });
+
+        parseJsonArray(person.achievements).forEach(item => {
+            const dateKey = parseLooseDateKey(item.date);
+            if (dateKey && workingDateSet.has(dateKey)) attendedDates.add(dateKey);
+        });
+
+        const statusCells = workingDateKeys.map(dateKey => {
+            if (attendedDates.has(dateKey)) return 'Present';
+            if (odDates.has(dateKey)) return 'OD';
+            return 'Absent';
+        });
+        const effectivePresent = statusCells.filter(status => status === 'Present' || status === 'OD').length;
+        const percentage = workingDateKeys.length === 0 ? 100 : Math.round((effectivePresent / workingDateKeys.length) * 100);
+
+        return [
+            person.studying_year || '',
+            person.individual_name,
+            person.username || '',
+            'Cybersecurity',
+            ...statusCells,
+            `${percentage}%`
+        ];
+    });
+
+    return [headers, ...rows].map(row => row.map(escapeCsv).join(',')).join('\n');
+};
+
 // Admin Get Attendance
 app.get('/api/admin/attendance', async (req, res) => {
     try {
@@ -1109,7 +1304,6 @@ app.get('/api/admin/attendance/monthly-export', async (req, res) => {
             'Studying Year',
             'Name',
             'Username',
-            'Team',
             'Department',
             'Month',
             'Working Days',
@@ -1132,8 +1326,7 @@ app.get('/api/admin/attendance/monthly-export', async (req, res) => {
                 user.studying_year || '',
                 user.individual_name || user.username,
                 user.username,
-                user.team_name || '',
-                user.department || user.year_of_study || '',
+                'Cybersecurity',
                 requestedMonth,
                 totalWorkingDays,
                 attendedDays,
@@ -1161,93 +1354,37 @@ app.get('/api/admin/attendance/weekly-export', async (req, res) => {
             return res.status(400).json({ error: 'Week must be in YYYY-Www format' });
         }
 
-        const todayKey = formatDateKey(new Date());
-        const exportEnd = weekRange.startKey <= todayKey && todayKey < weekRange.endKey ? todayKey : weekRange.endKey;
-        const workingDateKeys = weekRange.startKey <= exportEnd ? await getWorkingDateKeys(weekRange.startKey, exportEnd) : [];
-        const workingDateSet = new Set(workingDateKeys);
-
-        const [users] = await pool.query(`
-            SELECT
-                u.id,
-                u.username,
-                i.name as individual_name,
-                i.department,
-                i.year_of_study,
-                i.studying_year,
-                t.name as team_name
-            FROM users u
-            LEFT JOIN individuals i
-                ON LOWER(REPLACE(REPLACE(i.name, '.', ''), ' ', '')) = LOWER(REPLACE(REPLACE(u.username, '.', ''), ' ', ''))
-            LEFT JOIN teams t ON i.team_id = t.id
-            ORDER BY COALESCE(i.studying_year, 999), i.name, u.username
-        `);
-        const [attendanceRows] = await pool.query(
-            'SELECT user_id, attendance_date FROM attendance WHERE attendance_date BETWEEN ? AND ?',
-            [weekRange.startKey, exportEnd]
-        );
-        const [odRows] = await pool.query(
-            'SELECT user_id, od_date FROM attendance_od WHERE od_date BETWEEN ? AND ?',
-            [weekRange.startKey, exportEnd]
-        );
-
-        const attendanceByUser = new Map();
-        attendanceRows.forEach(row => {
-            const dateKey = toDateKey(row.attendance_date);
-            if (!workingDateSet.has(dateKey)) return;
-            const userKey = String(row.user_id);
-            if (!attendanceByUser.has(userKey)) attendanceByUser.set(userKey, new Set());
-            attendanceByUser.get(userKey).add(dateKey);
-        });
-
-        const odByUser = new Map();
-        odRows.forEach(row => {
-            const dateKey = toDateKey(row.od_date);
-            if (!workingDateSet.has(dateKey)) return;
-            const userKey = String(row.user_id);
-            if (!odByUser.has(userKey)) odByUser.set(userKey, new Set());
-            odByUser.get(userKey).add(dateKey);
-        });
-
-        const headers = [
-            'Studying Year',
-            'Name',
-            'Username',
-            'Team',
-            'Department',
-            ...workingDateKeys.map(formatDateDayLabel),
-            'Weekly Percentage'
-        ];
-
-        const rows = users.map(user => {
-            const userKey = String(user.id);
-            const attendedDates = attendanceByUser.get(userKey) || new Set();
-            const odDates = odByUser.get(userKey) || new Set();
-            const statusCells = workingDateKeys.map(dateKey => {
-                if (attendedDates.has(dateKey)) return 'Present';
-                if (odDates.has(dateKey)) return 'OD';
-                return 'Absent';
-            });
-            const effectivePresent = statusCells.filter(status => status === 'Present' || status === 'OD').length;
-            const percentage = workingDateKeys.length === 0 ? 100 : Math.round((effectivePresent / workingDateKeys.length) * 100);
-
-            return [
-                user.studying_year || '',
-                user.individual_name || user.username,
-                user.username,
-                user.team_name || '',
-                user.department || user.year_of_study || '',
-                ...statusCells,
-                `${percentage}%`
-            ];
-        });
-
-        const csv = [headers, ...rows].map(row => row.map(escapeCsv).join(',')).join('\n');
+        const csv = await buildAttendanceStatusCsv(weekRange.startKey, weekRange.endKey, 'Weekly Percentage');
         res.setHeader('Content-Type', 'text/csv; charset=utf-8');
         res.setHeader('Content-Disposition', `attachment; filename="weekly-attendance-${requestedWeek}.csv"`);
         res.send(csv);
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Server error exporting weekly attendance' });
+    }
+});
+
+app.get('/api/admin/attendance/range-export', async (req, res) => {
+    try {
+        const from = req.query.from || '';
+        const to = req.query.to || '';
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+            return res.status(400).json({ error: 'From and To must be in YYYY-MM-DD format' });
+        }
+
+        const todayKey = formatDateKey(new Date());
+        const cappedTo = to > todayKey ? todayKey : to;
+        if (from > cappedTo) {
+            return res.status(400).json({ error: 'From date cannot be after To date' });
+        }
+
+        const csv = await buildAttendanceStatusCsv(from, cappedTo, 'Attendance Percentage');
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="attendance-${from}-to-${cappedTo}.csv"`);
+        res.send(csv);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error exporting attendance range' });
     }
 });
 
