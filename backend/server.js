@@ -118,6 +118,19 @@ const pool = mysql.createPool({
     queueLimit: 0
 });
 
+async function syncIndividualUserMappings() {
+    const [individuals] = await pool.query('SELECT id, name, user_id FROM individuals');
+    const [users] = await pool.query('SELECT id, username FROM users');
+
+    for (const individual of individuals) {
+        const exactMatch = users.find(user => normalizePersonKey(user.username) === normalizePersonKey(individual.name));
+        const fuzzyMatch = exactMatch || users.find(user => isPersonMatch(user.username, individual.name));
+        if (fuzzyMatch && String(individual.user_id || '') !== String(fuzzyMatch.id)) {
+            await pool.query('UPDATE individuals SET user_id = ? WHERE id = ?', [fuzzyMatch.id, individual.id]);
+        }
+    }
+}
+
 // Test Connection
 pool.getConnection()
     .then(connection => {
@@ -170,6 +183,9 @@ async function ensureRuntimeSchema() {
         }
 
         const [individualColumns] = await pool.query('SHOW COLUMNS FROM individuals');
+        if (!individualColumns.some(col => col.Field === 'user_id')) {
+            await pool.query('ALTER TABLE individuals ADD COLUMN user_id INT NULL AFTER name');
+        }
         if (!individualColumns.some(col => col.Field === 'daily_work')) {
             await pool.query('ALTER TABLE individuals ADD COLUMN daily_work TEXT');
         }
@@ -181,6 +197,7 @@ async function ensureRuntimeSchema() {
                 WHERE studying_year IS NULL AND year_of_study REGEXP '[0-9]+'
             `);
         }
+        await syncIndividualUserMappings();
         await pool.query(`
             CREATE TABLE IF NOT EXISTS individual_work_logs (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -411,11 +428,11 @@ app.get('/api/individuals', async (req, res) => {
 app.get('/api/individuals/:id', async (req, res) => {
     try {
         const [rows] = await pool.query(`
-            SELECT i.*, t.name as team_name, wl.work_text as current_day_work, u.id as attendance_user_id
+            SELECT i.*, t.name as team_name, wl.work_text as current_day_work, u.id as attendance_user_id, u.username as attendance_username
             FROM individuals i 
             LEFT JOIN teams t ON i.team_id = t.id
             LEFT JOIN individual_work_logs wl ON wl.individual_id = i.id AND wl.work_date = CURRENT_DATE
-            LEFT JOIN users u ON u.id = i.id
+            LEFT JOIN users u ON u.id = i.user_id
             WHERE i.id = ?
         `, [req.params.id]);
         if (rows.length === 0) return res.status(404).json({ error: 'Individual not found' });
@@ -845,6 +862,7 @@ app.post('/api/admin/create-user', async (req, res) => {
 
         const hashed = await bcrypt.hash(newPassword, 10);
         await pool.query('INSERT INTO users (username, password) VALUES (?, ?)', [newUsername, hashed]);
+        await syncIndividualUserMappings();
         res.json({ success: true, message: 'User created successfully' });
     } catch (err) {
         console.error(err);
@@ -871,6 +889,7 @@ app.post('/api/admin/update-user-password', async (req, res) => {
                 twofa_secret = NULL,
                 has_2fa_enabled = FALSE
         `, [username, hashed]);
+        await syncIndividualUserMappings();
 
         res.json({ success: true, message: 'User password updated successfully. 2FA has been reset.' });
     } catch (err) {
@@ -883,6 +902,7 @@ app.post('/api/admin/update-user-password', async (req, res) => {
 app.delete('/api/admin/users/:id', async (req, res) => {
     try {
         await pool.query('DELETE FROM attendance WHERE user_id = ?', [req.params.id]);
+        await pool.query('UPDATE individuals SET user_id = NULL WHERE user_id = ?', [req.params.id]);
         const [result] = await pool.query('DELETE FROM users WHERE id = ?', [req.params.id]);
 
         if (result.affectedRows === 0) {
@@ -1012,7 +1032,7 @@ const buildAttendanceStatusCsv = async (startKey, endKey, percentageHeader = 'At
             u.id as user_id,
             u.username
         FROM individuals i
-        LEFT JOIN users u ON u.id = i.id
+        LEFT JOIN users u ON u.id = i.user_id
         ORDER BY COALESCE(i.studying_year, 999), i.name
     `);
     const [attendanceRows] = await pool.query(
@@ -1092,7 +1112,7 @@ app.get('/api/admin/attendance', async (req, res) => {
             SELECT u.id, u.username, i.studying_year
             FROM users u
             LEFT JOIN individuals i
-                ON i.id = u.id
+                ON i.user_id = u.id
             ORDER BY COALESCE(i.studying_year, 999), u.id ASC
         `);
         const [attendanceRows] = await pool.query(
@@ -1240,7 +1260,7 @@ app.get('/api/admin/attendance/monthly-export', async (req, res) => {
                 t.name as team_name
             FROM users u
             LEFT JOIN individuals i
-                ON i.id = u.id
+                ON i.user_id = u.id
             LEFT JOIN teams t ON i.team_id = t.id
             ORDER BY COALESCE(i.studying_year, 999), i.name, u.username
         `);

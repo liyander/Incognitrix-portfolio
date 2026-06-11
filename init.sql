@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS teams (
 CREATE TABLE IF NOT EXISTS individuals (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
+    user_id INT,
     role VARCHAR(255),
     team_id INT,
     department VARCHAR(255),
