@@ -20,6 +20,11 @@ const getCurrentWeekValue = () => {
   return `${target.getUTCFullYear()}-W${String(weekNumber).padStart(2, '0')}`;
 };
 
+const getCurrentMonthValue = () => {
+  const current = new Date();
+  return `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}`;
+};
+
 function AdminPanel({ onBack, adminUser, onLogout }) {
   const [activeAdminView, setActiveAdminView] = useState('dashboard'); // 'dashboard' | 'projects-list' | 'add-project' | 'teams-list' | 'add-team' | 'individuals-list' | 'add-individual' | 'cves-list' | 'add-cve' | 'achievements-list' | 'add-achievement' | 'admin-settings'
   const [editingId, setEditingId] = useState(null);
@@ -35,6 +40,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
   const [attendanceHolidays, setAttendanceHolidays] = useState([]);
   const [selectedIndividual, setSelectedIndividual] = useState(null);
   const [selectedIndividualLoading, setSelectedIndividualLoading] = useState(false);
+  const [selectedAttendanceMonth, setSelectedAttendanceMonth] = useState(getCurrentMonthValue());
   const [dialogState, setDialogState] = useState(null);
   const dialogResolverRef = useRef(null);
 
@@ -53,7 +59,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
   });
 
   const [cveFormData, setCveFormData] = useState({ cve_number: '', details: '', poc: '', reference_link: [''], contributors: [] });
-  const [achievementFormData, setAchievementFormData] = useState({ title: '', description: '', reference_link: [''], future_scope: '', contributors: [] });
+  const [achievementFormData, setAchievementFormData] = useState({ title: '', description: '', date: '', reference_link: [''], future_scope: '', contributors: [] });
   const [ctfFormData, setCtfFormData] = useState({ title: '', url: '', start_time: '', end_time: '', format: 'Jeopardy', location: 'Online', description: '' });
   const [holidayFormData, setHolidayFormData] = useState({ holiday_date: '', title: '', holiday_type: 'Institute Holiday' });
   const [odFormData, setOdFormData] = useState({ user_id: '', od_date: '', reason: '' });
@@ -235,6 +241,10 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
     return [];
   };
 
+  const normalizeDetailItems = (items) => (
+    parseJsonArray(items).filter(item => item && typeof item === 'object')
+  );
+
   const formatWorkDate = (value) => {
     if (!value) return 'NO_DATE';
     const date = new Date(value);
@@ -289,6 +299,10 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
   };
 
   const handleAchievementChange = (e) => {
+    if (e.target.name === 'reference_link') {
+      setAchievementFormData({ ...achievementFormData, reference_link: [e.target.value] });
+      return;
+    }
     setAchievementFormData({ ...achievementFormData, [e.target.name]: e.target.value });
   };
 
@@ -556,13 +570,14 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
     setActiveAdminView('add-individual');
   };
 
-  const handleViewIndividual = async (ind) => {
+  const handleViewIndividual = async (ind, month = selectedAttendanceMonth || getCurrentMonthValue()) => {
     setSelectedIndividualLoading(true);
     setSelectedIndividual(null);
     setActiveAdminView('individual-detail');
+    setSelectedAttendanceMonth(month);
 
     try {
-      const response = await fetch(`${INDIVIDUALS_API_URL}/${ind.id}`);
+      const response = await fetch(`${INDIVIDUALS_API_URL}/${ind.id}?month=${encodeURIComponent(month)}`);
       if (!response.ok) {
         showAlert('Failed to load individual details.');
         setActiveAdminView('individuals-list');
@@ -577,6 +592,13 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
       setActiveAdminView('individuals-list');
     } finally {
       setSelectedIndividualLoading(false);
+    }
+  };
+
+  const handleAttendanceMonthChange = (month) => {
+    setSelectedAttendanceMonth(month);
+    if (selectedIndividual?.id) {
+      handleViewIndividual(selectedIndividual, month);
     }
   };
 
@@ -794,7 +816,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
       });
       fetchAchievements();
       showAlert(`Achievement ${editingId ? 'Updated' : 'Added'} Successfully!`);
-      setAchievementFormData({ title: '', description: '', reference_link: [''], future_scope: '', contributors: [] });
+      setAchievementFormData({ title: '', description: '', date: '', reference_link: [''], future_scope: '', contributors: [] });
       setEditingId(null);
       setActiveAdminView('achievements-list');
     } catch (err) {
@@ -1609,9 +1631,9 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
               <p className="text-error font-mono text-sm">Individual file not available.</p>
             </div>
           ) : (() => {
-            const detailAchievements = parseJsonArray(selectedIndividual.achievements);
-            const detailCertificates = parseJsonArray(selectedIndividual.certificates);
-            const detailResearch = parseJsonArray(selectedIndividual.research_work);
+            const detailAchievements = normalizeDetailItems(selectedIndividual.achievements);
+            const detailCertificates = normalizeDetailItems(selectedIndividual.certificates);
+            const detailResearch = normalizeDetailItems(selectedIndividual.research_work);
             const workTimeline = Array.isArray(selectedIndividual.work_timeline) ? selectedIndividual.work_timeline : [];
             const attendanceCalendar = Array.isArray(selectedIndividual.attendance_calendar) ? selectedIndividual.attendance_calendar : [];
             const firstCalendarDate = attendanceCalendar[0]?.date ? new Date(`${attendanceCalendar[0].date}T00:00:00`) : null;
@@ -1733,11 +1755,19 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                       <span className="material-symbols-outlined text-[18px] text-primary">calendar_month</span>
                       <span className="font-mono text-xs text-on-surface-variant tracking-widest uppercase">ATTENDANCE_CALENDAR :: {formatCalendarMonth(selectedIndividual.attendance_calendar_month)}</span>
                     </div>
-                    <div className="flex flex-wrap items-center gap-3 font-mono text-[10px] text-outline">
-                      <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-500/70"></span>PRESENT</span>
-                      <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-red-500/70"></span>ABSENT</span>
-                      <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-yellow-400/70"></span>OD</span>
-                      <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-outline/30"></span>OFF / UPCOMING</span>
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                      <input
+                        type="month"
+                        value={selectedAttendanceMonth}
+                        onChange={(e) => handleAttendanceMonthChange(e.target.value)}
+                        className="bg-background border border-outline/30 rounded p-2 text-on-surface focus:border-primary focus:outline-none font-mono text-xs"
+                      />
+                      <div className="flex flex-wrap items-center gap-3 font-mono text-[10px] text-outline">
+                        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-500/70"></span>PRESENT</span>
+                        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-red-500/70"></span>ABSENT</span>
+                        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-yellow-400/70"></span>OD</span>
+                        <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-outline/30"></span>OFF / UPCOMING</span>
+                      </div>
                     </div>
                   </div>
 
@@ -1782,8 +1812,9 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                       <div className="space-y-3">
                         {detailAchievements.length === 0 ? <p className="font-mono text-xs text-outline">No achievements recorded.</p> : detailAchievements.slice(0, 6).map((item, idx) => (
                           <div key={idx} className="border-b border-outline/10 pb-3 last:border-b-0">
-                            <div className="font-mono text-xs text-on-surface">{item.title || item.name || 'Achievement'}</div>
-                            <div className="font-mono text-[10px] text-outline mt-1">{item.date || 'NO DATE'}</div>
+                            <div className="font-mono text-xs text-on-surface">{item.title || item.name || item.event || 'Achievement'}</div>
+                            {item.description && <div className="font-mono text-[11px] text-on-surface-variant mt-1 leading-relaxed">{item.description}</div>}
+                            <div className="font-mono text-[10px] text-outline mt-1">{item.date || item.year || 'NO DATE'}</div>
                           </div>
                         ))}
                       </div>
@@ -2132,7 +2163,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
               <p className="font-mono text-sm text-on-surface-variant">Lab awards, honors, and milestone accomplishments.</p>
             </div>
             <button 
-              onClick={() => { setEditingId(null); setAchievementFormData({ title: '', description: '', reference_link: '', future_scope: '', contributors: [] }); setActiveAdminView('add-achievement'); }}
+              onClick={() => { setEditingId(null); setAchievementFormData({ title: '', description: '', date: '', reference_link: [''], future_scope: '', contributors: [] }); setActiveAdminView('add-achievement'); }}
               className="bg-primary/20 hover:bg-primary/30 text-primary px-6 py-3 font-bold font-mono text-sm border border-primary/50 shadow-[0_0_10px_rgba(0,245,255,0.1)] transition-all rounded hover:shadow-[0_0_20px_rgba(0,245,255,0.3)] z-10"
             >
               + RECORD ACHIEVEMENT
@@ -2145,7 +2176,9 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
               <div key={ach.id} className="bg-surface-container-low border border-outline/20 p-4 shrink-0 rounded flex justify-between">
                 <div>
                   <h3 className="font-bold text-lg text-primary">{ach.title}</h3>
-                  <div className="text-sm font-mono text-on-surface line-clamp-1">{ach.description}</div>
+                  <div className="text-[10px] font-mono text-outline uppercase mb-1">{ach.date ? formatWorkDate(ach.date) : 'NO DATE'}</div>
+                  <div className="text-sm font-mono text-on-surface line-clamp-2">{ach.description}</div>
+                  {ach.future_scope && <div className="text-xs font-mono text-on-surface-variant line-clamp-1 mt-1">Next: {ach.future_scope}</div>}
                 </div>
                 <div className="flex gap-2 h-10 w-24 text-xs font-bold shrink-0">
                   <button onClick={() => handleEditAchievement(ach)} className="flex-1 bg-surface-container-highest border border-outline/30 hover:bg-primary hover:text-on-primary-fixed transition-colors material-symbols-outlined rounded text-base">edit</button>
@@ -2178,13 +2211,18 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
               </label>
 
               <label>
+                <div className="text-outline font-bold mb-1 ml-1 text-xs">Achievement Date</div>
+                <input type="date" name="date" value={achievementFormData.date ? String(achievementFormData.date).slice(0, 10) : ''} onChange={handleAchievementChange} className="w-full bg-background border border-outline/30 focus:border-primary focus:ring-1 focus:ring-primary/50 transition-all text-on-surface rounded p-3" />
+              </label>
+
+              <label>
                 <div className="text-outline font-bold mb-1 ml-1 text-xs">Future Scope / Next Steps</div>
                 <textarea name="future_scope" value={achievementFormData.future_scope} onChange={handleAchievementChange} rows="2" className="w-full bg-background border border-outline/30 focus:border-primary focus:ring-1 focus:ring-primary/50 transition-all text-on-surface rounded p-3" placeholder="How this scales out logically going forward..."></textarea>
               </label>
 
               <label>
                 <div className="text-outline font-bold mb-1 ml-1 text-xs">Reference / Press Link</div>
-                <input name="reference_link" value={achievementFormData.reference_link} onChange={handleAchievementChange} className="w-full bg-background border border-outline/30 focus:border-primary focus:ring-1 focus:ring-primary/50 transition-all text-on-surface rounded p-3" placeholder="https://..." />
+                <input name="reference_link" value={Array.isArray(achievementFormData.reference_link) ? (achievementFormData.reference_link[0] || '') : (achievementFormData.reference_link || '')} onChange={handleAchievementChange} className="w-full bg-background border border-outline/30 focus:border-primary focus:ring-1 focus:ring-primary/50 transition-all text-on-surface rounded p-3" placeholder="https://..." />
               </label>
             </div>
             

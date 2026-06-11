@@ -153,7 +153,7 @@ async function ensureRuntimeSchema() {
 }
 
 async function markAttendance(userId, username) {
-    const today = new Date().toISOString().split('T')[0];
+    const today = formatDateKey(new Date());
     try {
         await pool.query(
             "INSERT INTO attendance (user_id, attendance_date) VALUES (?, ?)",
@@ -351,24 +351,30 @@ app.get('/api/individuals/:id', async (req, res) => {
             LIMIT 60
         `, [req.params.id]);
 
-        const todayKey = new Date().toISOString().slice(0, 10);
-        const monthStart = `${todayKey.slice(0, 7)}-01`;
+        const todayKey = formatDateKey(new Date());
+        const requestedMonth = req.query.month || todayKey.slice(0, 7);
+        if (!/^\d{4}-\d{2}$/.test(requestedMonth)) {
+            return res.status(400).json({ error: 'Month must be in YYYY-MM format' });
+        }
+
+        const monthStart = `${requestedMonth}-01`;
         const monthEndDate = new Date(`${monthStart}T00:00:00`);
         monthEndDate.setMonth(monthEndDate.getMonth() + 1);
         monthEndDate.setDate(0);
-        const monthEnd = monthEndDate.toISOString().slice(0, 10);
-        const calendarDates = getDateRange(monthStart, monthEnd).map(date => date.toISOString().slice(0, 10));
-        const workingDateKeys = await getWorkingDateKeys(monthStart, todayKey);
+        const monthEnd = formatDateKey(monthEndDate);
+        const calendarDates = getDateRange(monthStart, monthEnd).map(formatDateKey);
+        const statusEnd = requestedMonth === todayKey.slice(0, 7) && todayKey < monthEnd ? todayKey : monthEnd;
+        const workingDateKeys = await getWorkingDateKeys(monthStart, statusEnd);
         const workingDateSet = new Set(workingDateKeys);
         const attendanceUserId = rows[0].attendance_user_id;
 
         const [attendanceRows] = attendanceUserId ? await pool.query(
             'SELECT attendance_date FROM attendance WHERE user_id = ? AND attendance_date BETWEEN ? AND ?',
-            [attendanceUserId, monthStart, todayKey]
+            [attendanceUserId, monthStart, statusEnd]
         ) : [[]];
         const [odRows] = attendanceUserId ? await pool.query(
             'SELECT od_date, reason FROM attendance_od WHERE user_id = ? AND od_date BETWEEN ? AND ?',
-            [attendanceUserId, monthStart, todayKey]
+            [attendanceUserId, monthStart, statusEnd]
         ) : [[]];
 
         const presentDates = new Set(attendanceRows.map(row => toDateKey(row.attendance_date)));
@@ -378,7 +384,7 @@ app.get('/api/individuals/:id', async (req, res) => {
             let status = 'off';
             let label = 'Not counted';
 
-            if (dateKey > todayKey) {
+            if (dateKey > statusEnd || requestedMonth > todayKey.slice(0, 7)) {
                 status = 'upcoming';
                 label = 'Upcoming';
             } else if (workingDateSet.has(dateKey)) {
@@ -406,7 +412,7 @@ app.get('/api/individuals/:id', async (req, res) => {
             ...rows[0],
             work_timeline: workTimeline,
             attendance_calendar: attendanceCalendar,
-            attendance_calendar_month: todayKey.slice(0, 7)
+            attendance_calendar_month: requestedMonth
         });
     } catch (err) {
         console.error(err);
@@ -825,9 +831,15 @@ app.post('/api/admin/change-password', async (req, res) => {
     }
 });
 
+const padDatePart = (value) => String(value).padStart(2, '0');
+
+const formatDateKey = (date) => (
+    `${date.getFullYear()}-${padDatePart(date.getMonth() + 1)}-${padDatePart(date.getDate())}`
+);
+
 const toDateKey = (value) => {
     if (!value) return null;
-    if (value instanceof Date) return value.toISOString().slice(0, 10);
+    if (value instanceof Date) return formatDateKey(value);
     return String(value).slice(0, 10);
 };
 
@@ -858,7 +870,7 @@ const getWorkingDateKeys = async (startKey, endKey) => {
     return getDateRange(startKey, endKey)
         .filter(date => date.getDay() !== 0)
         .filter(date => !isFirstOrThirdSaturday(date))
-        .map(date => date.toISOString().slice(0, 10))
+        .map(formatDateKey)
         .filter(dateKey => !holidayDates.has(dateKey));
 };
 
@@ -902,7 +914,7 @@ const formatDateDayLabel = (dateKey) => {
 // Admin Get Attendance
 app.get('/api/admin/attendance', async (req, res) => {
     try {
-        const todayKey = new Date().toISOString().slice(0, 10);
+        const todayKey = formatDateKey(new Date());
         const [minRows] = await pool.query('SELECT MIN(attendance_date) as minDate FROM attendance');
         const minDateKey = toDateKey(minRows[0]?.minDate) || todayKey;
         const workingDateKeys = await getWorkingDateKeys(minDateKey, todayKey);
@@ -1034,17 +1046,17 @@ app.post('/api/admin/attendance-od', async (req, res) => {
 
 app.get('/api/admin/attendance/monthly-export', async (req, res) => {
     try {
-        const requestedMonth = req.query.month || new Date().toISOString().slice(0, 7);
+        const todayKey = formatDateKey(new Date());
+        const requestedMonth = req.query.month || todayKey.slice(0, 7);
         if (!/^\d{4}-\d{2}$/.test(requestedMonth)) {
             return res.status(400).json({ error: 'Month must be in YYYY-MM format' });
         }
 
-        const todayKey = new Date().toISOString().slice(0, 10);
         const monthStart = `${requestedMonth}-01`;
         const monthEndDate = new Date(`${monthStart}T00:00:00`);
         monthEndDate.setMonth(monthEndDate.getMonth() + 1);
         monthEndDate.setDate(0);
-        const monthEnd = monthEndDate.toISOString().slice(0, 10);
+        const monthEnd = formatDateKey(monthEndDate);
         const exportEnd = requestedMonth === todayKey.slice(0, 7) && todayKey < monthEnd ? todayKey : monthEnd;
 
         const workingDateKeys = await getWorkingDateKeys(monthStart, exportEnd);
@@ -1149,7 +1161,7 @@ app.get('/api/admin/attendance/weekly-export', async (req, res) => {
             return res.status(400).json({ error: 'Week must be in YYYY-Www format' });
         }
 
-        const todayKey = new Date().toISOString().slice(0, 10);
+        const todayKey = formatDateKey(new Date());
         const exportEnd = weekRange.startKey <= todayKey && todayKey < weekRange.endKey ? todayKey : weekRange.endKey;
         const workingDateKeys = weekRange.startKey <= exportEnd ? await getWorkingDateKeys(weekRange.startKey, exportEnd) : [];
         const workingDateSet = new Set(workingDateKeys);
