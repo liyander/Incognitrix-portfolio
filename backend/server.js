@@ -119,15 +119,19 @@ const pool = mysql.createPool({
 });
 
 async function syncIndividualUserMappings() {
-    const [individuals] = await pool.query('SELECT id, name, user_id FROM individuals');
-    const [users] = await pool.query('SELECT id, username FROM users');
+    try {
+        const [individuals] = await pool.query('SELECT id, name, user_id FROM individuals');
+        const [users] = await pool.query('SELECT id, username FROM users');
 
-    for (const individual of individuals) {
-        const exactMatch = users.find(user => normalizePersonKey(user.username) === normalizePersonKey(individual.name));
-        const fuzzyMatch = exactMatch || users.find(user => isPersonMatch(user.username, individual.name));
-        if (fuzzyMatch && String(individual.user_id || '') !== String(fuzzyMatch.id)) {
-            await pool.query('UPDATE individuals SET user_id = ? WHERE id = ?', [fuzzyMatch.id, individual.id]);
+        for (const individual of individuals) {
+            const exactMatch = users.find(user => normalizePersonKey(user.username) === normalizePersonKey(individual.name));
+            const fuzzyMatch = exactMatch || users.find(user => isPersonMatch(user.username, individual.name));
+            if (fuzzyMatch && String(individual.user_id || '') !== String(fuzzyMatch.id)) {
+                await pool.query('UPDATE individuals SET user_id = ? WHERE id = ?', [fuzzyMatch.id, individual.id]);
+            }
         }
+    } catch (err) {
+        console.warn('Skipping individual/user attendance mapping sync:', err.message);
     }
 }
 
@@ -181,6 +185,24 @@ async function ensureRuntimeSchema() {
         if (!userColumns.some(col => col.Field === 'has_2fa_enabled')) {
             await pool.query('ALTER TABLE users ADD COLUMN has_2fa_enabled BOOLEAN DEFAULT FALSE');
         }
+
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS individuals (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                user_id INT NULL,
+                role VARCHAR(255),
+                team_id INT,
+                department VARCHAR(255),
+                year_of_study VARCHAR(255),
+                studying_year INT,
+                daily_work TEXT,
+                achievements JSON,
+                certificates JSON,
+                research_work JSON,
+                image TEXT
+            )
+        `);
 
         const [individualColumns] = await pool.query('SHOW COLUMNS FROM individuals');
         if (!individualColumns.some(col => col.Field === 'user_id')) {
@@ -265,6 +287,10 @@ async function markAttendance(userId, username) {
 // -----------------------------------------
 // ROUTES
 // -----------------------------------------
+
+app.get('/api/health', (req, res) => {
+    res.json({ ok: true, service: 'backend', timestamp: new Date().toISOString() });
+});
 
 // GET all projects
 app.get('/api/projects', async (req, res) => {

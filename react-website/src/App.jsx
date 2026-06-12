@@ -447,7 +447,7 @@ function App() {
         <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-primary/50 to-transparent"></div>
         <div className="max-w-7xl mx-auto px-6 md:px-12 py-4 flex items-center justify-between">
           <div className="flex items-center">
-              <span className="font-headline font-bold tracking-widest text-on-surface text-lg uppercase jarvis-text hologram">Incognitirx lab</span>
+              <span className="font-headline font-bold tracking-widest text-on-surface text-lg uppercase jarvis-text hologram">Incognitrix lab</span>
           </div>
           <nav className="hidden md:flex space-x-6 items-center">
             <button 
