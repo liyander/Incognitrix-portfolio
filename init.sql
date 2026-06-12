@@ -5,6 +5,18 @@ CREATE TABLE IF NOT EXISTS attendance (
     UNIQUE KEY org_emp_date (user_id, attendance_date)
 );
 
+CREATE TABLE IF NOT EXISTS attendance_requests (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id VARCHAR(255) NOT NULL,
+    attendance_date DATE NOT NULL,
+    status VARCHAR(50) DEFAULT 'pending',
+    requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    reviewed_at TIMESTAMP NULL,
+    reviewed_by VARCHAR(255),
+    review_note TEXT,
+    UNIQUE KEY user_request_date (user_id, attendance_date)
+);
+
 CREATE TABLE IF NOT EXISTS admins (
     id INT AUTO_INCREMENT PRIMARY KEY,
     username VARCHAR(255) NOT NULL UNIQUE,

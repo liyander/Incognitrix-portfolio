@@ -157,6 +157,19 @@ async function ensureRuntimeSchema() {
             )
         `);
         await pool.query(`
+            CREATE TABLE IF NOT EXISTS attendance_requests (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id VARCHAR(255) NOT NULL,
+                attendance_date DATE NOT NULL,
+                status VARCHAR(50) DEFAULT 'pending',
+                requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                reviewed_at TIMESTAMP NULL,
+                reviewed_by VARCHAR(255),
+                review_note TEXT,
+                UNIQUE KEY user_request_date (user_id, attendance_date)
+            )
+        `);
+        await pool.query(`
             CREATE TABLE IF NOT EXISTS users (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 username VARCHAR(255) NOT NULL UNIQUE,
@@ -268,18 +281,25 @@ async function ensureRuntimeSchema() {
     }
 }
 
-async function markAttendance(userId, username) {
+async function submitAttendanceForReview(userId, username) {
     const today = formatDateKey(new Date());
     try {
-        await pool.query(
-            "INSERT INTO attendance (user_id, attendance_date) VALUES (?, ?)",
+        const [existingAttendance] = await pool.query(
+            'SELECT id FROM attendance WHERE user_id = ? AND attendance_date = ? LIMIT 1',
             [userId, today]
         );
-        return { success: true, message: "Attendance marked as present for today!", username, attendanceRecorded: true };
-    } catch (attErr) {
-        if (attErr.code === 'ER_DUP_ENTRY') {
-            return { success: true, message: "Attendance already marked for today.", username, attendanceRecorded: false, alreadyMarked: true };
+        if (existingAttendance.length > 0) {
+            return { success: true, message: "Attendance already approved for today.", username, attendanceRecorded: false, alreadyMarked: true, approvalStatus: 'approved' };
         }
+
+        await pool.query(
+            `INSERT INTO attendance_requests (user_id, attendance_date, status, requested_at, reviewed_at, reviewed_by, review_note)
+             VALUES (?, ?, 'pending', CURRENT_TIMESTAMP, NULL, NULL, NULL)
+             ON DUPLICATE KEY UPDATE status = 'pending', requested_at = CURRENT_TIMESTAMP, reviewed_at = NULL, reviewed_by = NULL, review_note = NULL`,
+            [userId, today]
+        );
+        return { success: true, message: "Attendance submitted for admin approval.", username, attendanceRecorded: false, approvalStatus: 'pending' };
+    } catch (attErr) {
         throw attErr;
     }
 }
@@ -1260,6 +1280,67 @@ app.post('/api/admin/attendance-od', async (req, res) => {
     }
 });
 
+app.get('/api/admin/attendance-requests', async (req, res) => {
+    try {
+        const status = req.query.status || 'pending';
+        const [rows] = await pool.query(`
+            SELECT ar.*, u.username
+            FROM attendance_requests ar
+            LEFT JOIN users u ON u.id = ar.user_id
+            WHERE ar.status = ?
+            ORDER BY ar.requested_at DESC, ar.id DESC
+        `, [status]);
+        res.json(rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error fetching attendance requests' });
+    }
+});
+
+app.post('/api/admin/attendance-requests/:id/approve', async (req, res) => {
+    const reviewer = req.body.reviewed_by || req.body.admin_username || 'admin';
+    try {
+        const [rows] = await pool.query('SELECT * FROM attendance_requests WHERE id = ? LIMIT 1', [req.params.id]);
+        if (rows.length === 0) return res.status(404).json({ error: 'Attendance request not found' });
+
+        const request = rows[0];
+        await pool.query(
+            `INSERT INTO attendance (user_id, attendance_date)
+             VALUES (?, ?)
+             ON DUPLICATE KEY UPDATE attendance_date = VALUES(attendance_date)`,
+            [request.user_id, toDateKey(request.attendance_date)]
+        );
+        await pool.query(
+            `UPDATE attendance_requests
+             SET status = 'approved', reviewed_at = CURRENT_TIMESTAMP, reviewed_by = ?, review_note = NULL
+             WHERE id = ?`,
+            [reviewer, req.params.id]
+        );
+        res.json({ success: true, message: 'Attendance approved and recorded.' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error approving attendance request' });
+    }
+});
+
+app.post('/api/admin/attendance-requests/:id/reject', async (req, res) => {
+    const reviewer = req.body.reviewed_by || req.body.admin_username || 'admin';
+    const note = req.body.review_note || 'Rejected by admin';
+    try {
+        const [result] = await pool.query(
+            `UPDATE attendance_requests
+             SET status = 'rejected', reviewed_at = CURRENT_TIMESTAMP, reviewed_by = ?, review_note = ?
+             WHERE id = ?`,
+            [reviewer, note, req.params.id]
+        );
+        if (result.affectedRows === 0) return res.status(404).json({ error: 'Attendance request not found' });
+        res.json({ success: true, message: 'Attendance request rejected.' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error rejecting attendance request' });
+    }
+});
+
 app.get('/api/admin/attendance/monthly-export', async (req, res) => {
     try {
         const todayKey = formatDateKey(new Date());
@@ -1535,7 +1616,7 @@ app.post("/api/user/verify-2fa", async (req, res) => {
                 await pool.query("UPDATE users SET has_2fa_enabled = TRUE WHERE id = ?", [user.id]);
             }
             
-            return res.json(await markAttendance(user.id, user.username));
+            return res.json(await submitAttendanceForReview(user.id, user.username));
         } else {
             return res.status(400).json({ success: false, message: "Invalid OTP token" });
         }

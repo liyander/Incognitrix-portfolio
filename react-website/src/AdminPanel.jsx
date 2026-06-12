@@ -64,6 +64,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
   const [achievements, setAchievements] = useState([]);
   const [upcomingCtfs, setUpcomingCtfs] = useState([]);
   const [attendanceStats, setAttendanceStats] = useState([]);
+  const [attendanceRequests, setAttendanceRequests] = useState([]);
   const [attendanceHolidays, setAttendanceHolidays] = useState([]);
   const [selectedIndividual, setSelectedIndividual] = useState(null);
   const [selectedIndividualLoading, setSelectedIndividualLoading] = useState(false);
@@ -156,6 +157,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
     fetchAchievements();
     fetchUpcomingCtfs();
     fetchAttendance();
+    fetchAttendanceRequests();
     fetchAttendanceHolidays();
   }, []);
 
@@ -184,6 +186,16 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
       setAttendanceStats(uniqueStats);
     } catch (err) {
       console.error('Failed to fetch attendance', err);
+    }
+  };
+
+  const fetchAttendanceRequests = async () => {
+    try {
+      const response = await fetch('/api/admin/attendance-requests?status=pending');
+      const data = await response.json();
+      setAttendanceRequests(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('Failed to fetch attendance requests', err);
     }
   };
 
@@ -433,6 +445,35 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
     } catch (err) {
       console.error('Failed to save OD', err);
       showAlert('Failed to save OD. Check console.');
+    }
+  };
+
+  const handleReviewAttendanceRequest = async (requestId, action) => {
+    const isApprove = action === 'approve';
+    const confirmed = await showConfirm(
+      isApprove ? 'Approve this attendance request?' : 'Reject this attendance request?',
+      isApprove ? 'Approve Attendance' : 'Reject Attendance'
+    );
+    if (!confirmed) return;
+
+    try {
+      const response = await fetch(`/api/admin/attendance-requests/${requestId}/${action}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reviewed_by: adminUser?.username || adminUser || 'admin' })
+      });
+
+      if (!response.ok) {
+        showAlert(`Failed to ${action} attendance request.`, 'error');
+        return;
+      }
+
+      fetchAttendanceRequests();
+      fetchAttendance();
+      showAlert(isApprove ? 'Attendance approved and recorded.' : 'Attendance request rejected.');
+    } catch (err) {
+      console.error(`Failed to ${action} attendance request`, err);
+      showAlert(`Failed to ${action} attendance request. Check console.`, 'error');
     }
   };
 
@@ -1105,6 +1146,62 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
               <h2 className="font-headline text-2xl font-bold tracking-wider">ATTENDANCE OVERVIEW</h2>
             </div>
             <p className="font-mono text-sm text-on-surface-variant mb-6">Operative check-in status mapping to tracking database. Sundays, first Saturdays, third Saturdays, holidays, and approved OD are handled in the calculation.</p>
+
+            <div className="mb-6 bg-background border border-outline/20 rounded p-4">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
+                <div>
+                  <div className="font-mono text-xs text-primary uppercase tracking-widest">Pending Attendance Review</div>
+                  <p className="font-mono text-[11px] text-outline mt-1">User check-ins are recorded only after admin approval.</p>
+                </div>
+                <span className="font-mono text-xs text-outline">{attendanceRequests.length} PENDING</span>
+              </div>
+
+              {attendanceRequests.length === 0 ? (
+                <div className="border border-outline/10 rounded p-4 font-mono text-xs text-outline">No pending attendance requests.</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left font-mono text-xs">
+                    <thead>
+                      <tr className="border-b border-outline/20 text-outline uppercase">
+                        <th className="pb-2 px-3">User ID</th>
+                        <th className="pb-2 px-3">Operative</th>
+                        <th className="pb-2 px-3">Date</th>
+                        <th className="pb-2 px-3">Requested</th>
+                        <th className="pb-2 px-3 text-right">Review</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {attendanceRequests.map(request => (
+                        <tr key={request.id} className="border-b border-outline/10">
+                          <td className="py-3 px-3 text-primary">{request.user_id}</td>
+                          <td className="py-3 px-3 text-on-surface uppercase">{request.username || 'UNKNOWN USER'}</td>
+                          <td className="py-3 px-3">{String(request.attendance_date).slice(0, 10)}</td>
+                          <td className="py-3 px-3 text-outline">{String(request.requested_at || '').slice(0, 19).replace('T', ' ')}</td>
+                          <td className="py-3 px-3">
+                            <div className="flex justify-end gap-2">
+                              <button
+                                onClick={() => handleReviewAttendanceRequest(request.id, 'approve')}
+                                className="text-primary hover:bg-primary/10 px-3 py-1.5 rounded border border-primary/20 transition-colors flex items-center gap-1"
+                              >
+                                <span className="material-symbols-outlined text-sm">check</span>
+                                APPROVE
+                              </button>
+                              <button
+                                onClick={() => handleReviewAttendanceRequest(request.id, 'reject')}
+                                className="text-error hover:bg-error/10 px-3 py-1.5 rounded border border-error/20 transition-colors flex items-center gap-1"
+                              >
+                                <span className="material-symbols-outlined text-sm">close</span>
+                                REJECT
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
 
             <div className="mb-6 bg-background border border-outline/20 rounded p-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
               <div className="flex flex-col md:flex-row md:items-end gap-4">
