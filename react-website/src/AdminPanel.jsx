@@ -9,6 +9,7 @@ const INDIVIDUALS_API_URL = '/api/individuals';
 const CVES_API_URL = '/api/cves';
 const ACHIEVEMENTS_API_URL = '/api/achievements';
 const UPCOMING_CTFS_API_URL = '/api/upcoming-ctfs';
+const CTF_PARTICIPATIONS_API_URL = '/api/ctf-participations';
 
 const getCurrentWeekValue = () => {
   const current = new Date();
@@ -63,6 +64,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
   const [cves, setCves] = useState([]);
   const [achievements, setAchievements] = useState([]);
   const [upcomingCtfs, setUpcomingCtfs] = useState([]);
+  const [ctfParticipations, setCtfParticipations] = useState([]);
   const [attendanceStats, setAttendanceStats] = useState([]);
   const [attendanceRequests, setAttendanceRequests] = useState([]);
   const [attendanceHolidays, setAttendanceHolidays] = useState([]);
@@ -89,6 +91,9 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
   const [cveFormData, setCveFormData] = useState({ cve_number: '', details: '', poc: '', reference_link: [''], contributors: [] });
   const [achievementFormData, setAchievementFormData] = useState({ title: '', description: '', date: '', reference_link: [''], future_scope: '', contributors: [] });
   const [ctfFormData, setCtfFormData] = useState({ title: '', url: '', start_time: '', end_time: '', format: 'Jeopardy', location: 'Online', description: '' });
+  const [ctfParticipationFormData, setCtfParticipationFormData] = useState({ ctf_id: '', ctf_title: '', ctf_source: 'manual', start_time: '', end_time: '', participating: true, notes: '' });
+  const [ctfTeamFormData, setCtfTeamFormData] = useState({ participation_id: '', team_name: '', position: '', score: '', notes: '', members: [] });
+  const [editingCtfTeamId, setEditingCtfTeamId] = useState(null);
   const [holidayFormData, setHolidayFormData] = useState({ holiday_date: '', title: '', holiday_type: 'Institute Holiday' });
   const [odFormData, setOdFormData] = useState({ user_id: '', od_date: '', reason: '' });
   const [attendanceExportWeek, setAttendanceExportWeek] = useState(getCurrentWeekValue());
@@ -156,6 +161,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
     fetchCves();
     fetchAchievements();
     fetchUpcomingCtfs();
+    fetchCtfParticipations();
     fetchAttendance();
     fetchAttendanceRequests();
     fetchAttendanceHolidays();
@@ -186,6 +192,16 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
       setAttendanceStats(uniqueStats);
     } catch (err) {
       console.error('Failed to fetch attendance', err);
+    }
+  };
+
+  const fetchCtfParticipations = async () => {
+    try {
+      const response = await fetch(CTF_PARTICIPATIONS_API_URL);
+      const data = await response.json();
+      setCtfParticipations(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('Failed to fetch CTF participations', err);
     }
   };
 
@@ -374,6 +390,42 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
     setCtfFormData({ ...ctfFormData, [e.target.name]: e.target.value });
   };
 
+  const handleCtfParticipationChange = (e) => {
+    const { name, value, type, checked } = e.target;
+    setCtfParticipationFormData({
+      ...ctfParticipationFormData,
+      [name]: type === 'checkbox' ? checked : value
+    });
+  };
+
+  const handleCtfTeamChange = (e) => {
+    setCtfTeamFormData({ ...ctfTeamFormData, [e.target.name]: e.target.value });
+  };
+
+  const selectCtfForParticipation = (ctf) => {
+    setCtfParticipationFormData({
+      ctf_id: String(ctf.id),
+      ctf_title: ctf.title || '',
+      ctf_source: ctf.source || 'manual',
+      start_time: ctf.start_time ? String(ctf.start_time).slice(0, 16) : '',
+      end_time: ctf.end_time ? String(ctf.end_time).slice(0, 16) : '',
+      participating: true,
+      notes: ctf.description || ''
+    });
+  };
+
+  const handleCtfTeamMemberToggle = (individual) => {
+    const currentMembers = Array.isArray(ctfTeamFormData.members) ? ctfTeamFormData.members : [];
+    const member = { id: individual.id, name: individual.name };
+    const exists = currentMembers.some(item => String(item.id) === String(individual.id));
+    setCtfTeamFormData({
+      ...ctfTeamFormData,
+      members: exists
+        ? currentMembers.filter(item => String(item.id) !== String(individual.id))
+        : [...currentMembers, member]
+    });
+  };
+
   const handleHolidayChange = (e) => {
     setHolidayFormData({ ...holidayFormData, [e.target.name]: e.target.value });
   };
@@ -541,6 +593,110 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
     } catch (err) {
       console.error('Failed to delete upcoming CTF', err);
       showAlert('Failed to delete upcoming CTF. Check console.');
+    }
+  };
+
+  const handleCtfParticipationSubmit = async (e) => {
+    e.preventDefault();
+    if (!ctfParticipationFormData.ctf_id || !ctfParticipationFormData.ctf_title) {
+      showAlert('Select a CTF before saving participation.', 'error');
+      return;
+    }
+
+    try {
+      const response = await fetch(CTF_PARTICIPATIONS_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...ctfParticipationFormData,
+          status: ctfParticipationFormData.participating ? 'participating' : 'watching'
+        })
+      });
+      if (!response.ok) {
+        showAlert('Failed to save CTF participation.', 'error');
+        return;
+      }
+      const saved = await response.json();
+      setCtfTeamFormData({ participation_id: saved?.id || '', team_name: '', position: '', score: '', notes: '', members: [] });
+      fetchCtfParticipations();
+      showAlert('CTF participation saved.');
+    } catch (err) {
+      console.error('Failed to save CTF participation', err);
+      showAlert('Failed to save CTF participation. Check console.', 'error');
+    }
+  };
+
+  const handleCtfTeamSubmit = async (e) => {
+    e.preventDefault();
+    if (!ctfTeamFormData.participation_id || !ctfTeamFormData.team_name) {
+      showAlert('Select a participating CTF and enter a team name.', 'error');
+      return;
+    }
+
+    const url = editingCtfTeamId
+      ? `/api/ctf-participation-teams/${editingCtfTeamId}`
+      : `${CTF_PARTICIPATIONS_API_URL}/${ctfTeamFormData.participation_id}/teams`;
+    const method = editingCtfTeamId ? 'PUT' : 'POST';
+
+    try {
+      const response = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(ctfTeamFormData)
+      });
+      if (!response.ok) {
+        showAlert('Failed to save CTF team.', 'error');
+        return;
+      }
+      setEditingCtfTeamId(null);
+      setCtfTeamFormData({ participation_id: ctfTeamFormData.participation_id, team_name: '', position: '', score: '', notes: '', members: [] });
+      fetchCtfParticipations();
+      showAlert('CTF team saved.');
+    } catch (err) {
+      console.error('Failed to save CTF team', err);
+      showAlert('Failed to save CTF team. Check console.', 'error');
+    }
+  };
+
+  const handleEditCtfTeam = (participation, team) => {
+    setEditingCtfTeamId(team.id);
+    setCtfTeamFormData({
+      participation_id: participation.id,
+      team_name: team.team_name || '',
+      position: team.position ?? '',
+      score: team.score || '',
+      notes: team.notes || '',
+      members: Array.isArray(team.members) ? team.members : []
+    });
+  };
+
+  const handleDeleteCtfTeam = async (team) => {
+    if (!(await showConfirm(`Remove ${team.team_name} from this CTF?`))) return;
+    try {
+      const response = await fetch(`/api/ctf-participation-teams/${team.id}`, { method: 'DELETE' });
+      if (!response.ok) {
+        showAlert('Failed to delete CTF team.', 'error');
+        return;
+      }
+      fetchCtfParticipations();
+    } catch (err) {
+      console.error('Failed to delete CTF team', err);
+      showAlert('Failed to delete CTF team. Check console.', 'error');
+    }
+  };
+
+  const handleDeleteCtfParticipation = async (participation) => {
+    if (!(await showConfirm(`Remove participation tracking for ${participation.ctf_title}?`))) return;
+    try {
+      const response = await fetch(`${CTF_PARTICIPATIONS_API_URL}/${participation.id}`, { method: 'DELETE' });
+      if (!response.ok) {
+        showAlert('Failed to remove CTF participation.', 'error');
+        return;
+      }
+      fetchCtfParticipations();
+    } catch (err) {
+      console.error('Failed to remove CTF participation', err);
+      showAlert('Failed to remove CTF participation. Check console.', 'error');
     }
   };
 
@@ -2275,6 +2431,168 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
             </div>
           </form>
 
+          <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+            <form onSubmit={handleCtfParticipationSubmit} className="xl:col-span-5 bg-background border border-primary/20 rounded p-5 font-mono text-xs flex flex-col gap-4">
+              <div>
+                <h3 className="font-headline text-xl font-bold text-primary-container">PARTICIPATION CONTROL</h3>
+                <p className="text-outline mt-1">Select any upcoming CTF and mark whether Incognitrix is participating.</p>
+              </div>
+              <div>
+                <label className="text-outline block mb-1">Select CTF</label>
+                <select
+                  value={`${ctfParticipationFormData.ctf_source}:${ctfParticipationFormData.ctf_id}`}
+                  onChange={(e) => {
+                    const selected = upcomingCtfs.find(ctf => `${ctf.source || 'manual'}:${ctf.id}` === e.target.value);
+                    if (selected) selectCtfForParticipation(selected);
+                  }}
+                  className="w-full bg-surface-container-low border border-outline/30 rounded p-2.5 text-on-surface focus:border-primary focus:outline-none"
+                >
+                  <option value="manual:">Choose from upcoming CTFs</option>
+                  {upcomingCtfs.map(ctf => (
+                    <option key={`${ctf.source}-${ctf.id}`} value={`${ctf.source || 'manual'}:${ctf.id}`}>
+                      {ctf.title} [{ctf.source === 'ctftime' ? 'CTFTIME' : 'MANUAL'}]
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-outline block mb-1">Start</label>
+                  <input type="datetime-local" name="start_time" value={ctfParticipationFormData.start_time} onChange={handleCtfParticipationChange} className="w-full bg-surface-container-low border border-outline/30 rounded p-2.5 text-on-surface focus:border-primary focus:outline-none" />
+                </div>
+                <div>
+                  <label className="text-outline block mb-1">End</label>
+                  <input type="datetime-local" name="end_time" value={ctfParticipationFormData.end_time} onChange={handleCtfParticipationChange} className="w-full bg-surface-container-low border border-outline/30 rounded p-2.5 text-on-surface focus:border-primary focus:outline-none" />
+                </div>
+              </div>
+              <label className="flex items-center gap-2 text-on-surface">
+                <input type="checkbox" name="participating" checked={ctfParticipationFormData.participating} onChange={handleCtfParticipationChange} className="accent-primary" />
+                PARTICIPATING
+              </label>
+              <div>
+                <label className="text-outline block mb-1">Admin Notes</label>
+                <textarea name="notes" value={ctfParticipationFormData.notes} onChange={handleCtfParticipationChange} rows="3" className="w-full bg-surface-container-low border border-outline/30 rounded p-2.5 text-on-surface focus:border-primary focus:outline-none" placeholder="Focus categories, target goals, communication notes..." />
+              </div>
+              <button type="submit" className="bg-primary-container text-on-primary-fixed px-4 py-3 rounded font-headline font-bold hover:shadow-[0_0_18px_rgba(0,245,255,0.35)] transition-all">
+                SAVE PARTICIPATION
+              </button>
+            </form>
+
+            <form onSubmit={handleCtfTeamSubmit} className="xl:col-span-7 bg-background border border-outline/20 rounded p-5 font-mono text-xs flex flex-col gap-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="font-headline text-xl font-bold text-primary-container">CTF TEAMS & POSITIONS</h3>
+                  <p className="text-outline mt-1">Add teams, assign members, and update live standing position over time.</p>
+                </div>
+                {editingCtfTeamId && (
+                  <button type="button" onClick={() => { setEditingCtfTeamId(null); setCtfTeamFormData({ participation_id: ctfTeamFormData.participation_id, team_name: '', position: '', score: '', notes: '', members: [] }); }} className="text-outline hover:text-primary border border-outline/20 rounded px-3 py-1">
+                    CANCEL EDIT
+                  </button>
+                )}
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                <div className="md:col-span-2">
+                  <label className="text-outline block mb-1">Participating CTF</label>
+                  <select name="participation_id" value={ctfTeamFormData.participation_id} onChange={handleCtfTeamChange} className="w-full bg-surface-container-low border border-outline/30 rounded p-2.5 text-on-surface focus:border-primary focus:outline-none">
+                    <option value="">Select saved participation</option>
+                    {ctfParticipations.map(participation => (
+                      <option key={participation.id} value={participation.id}>{participation.ctf_title}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-outline block mb-1">Team Name</label>
+                  <input name="team_name" value={ctfTeamFormData.team_name} onChange={handleCtfTeamChange} className="w-full bg-surface-container-low border border-outline/30 rounded p-2.5 text-on-surface focus:border-primary focus:outline-none" placeholder="Team Alpha" />
+                </div>
+                <div>
+                  <label className="text-outline block mb-1">Position</label>
+                  <input type="number" min="1" name="position" value={ctfTeamFormData.position} onChange={handleCtfTeamChange} className="w-full bg-surface-container-low border border-outline/30 rounded p-2.5 text-on-surface focus:border-primary focus:outline-none" placeholder="1" />
+                </div>
+                <div>
+                  <label className="text-outline block mb-1">Score</label>
+                  <input name="score" value={ctfTeamFormData.score} onChange={handleCtfTeamChange} className="w-full bg-surface-container-low border border-outline/30 rounded p-2.5 text-on-surface focus:border-primary focus:outline-none" placeholder="Optional" />
+                </div>
+                <div className="md:col-span-3">
+                  <label className="text-outline block mb-1">Team Notes</label>
+                  <input name="notes" value={ctfTeamFormData.notes} onChange={handleCtfTeamChange} className="w-full bg-surface-container-low border border-outline/30 rounded p-2.5 text-on-surface focus:border-primary focus:outline-none" placeholder="Crypto focus, web focus, backup team..." />
+                </div>
+              </div>
+              <div>
+                <label className="text-outline block mb-2">Members</label>
+                <div className="max-h-40 overflow-y-auto grid grid-cols-1 md:grid-cols-2 gap-2 pr-1">
+                  {individuals.map(individual => {
+                    const selected = (ctfTeamFormData.members || []).some(member => String(member.id) === String(individual.id));
+                    return (
+                      <button type="button" key={individual.id} onClick={() => handleCtfTeamMemberToggle(individual)} className={`text-left border rounded px-3 py-2 transition-colors ${selected ? 'border-primary bg-primary/15 text-primary' : 'border-outline/20 bg-surface-container-low text-on-surface-variant hover:border-primary/40'}`}>
+                        {individual.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <button type="submit" className="bg-primary-container text-on-primary-fixed px-4 py-3 rounded font-headline font-bold hover:shadow-[0_0_18px_rgba(0,245,255,0.35)] transition-all">
+                {editingCtfTeamId ? 'UPDATE TEAM' : 'ADD TEAM'}
+              </button>
+            </form>
+          </div>
+
+          <div className="bg-surface-container-low border border-outline/20 rounded p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-headline text-xl font-bold text-primary">PARTICIPATING CTF CONFIGURATION</h3>
+              <span className="font-mono text-xs text-outline">{ctfParticipations.length} TRACKED</span>
+            </div>
+            {ctfParticipations.length === 0 ? (
+              <div className="font-mono text-xs text-outline border border-outline/10 rounded p-4">No CTF participation configured yet.</div>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {ctfParticipations.map(participation => (
+                  <article key={participation.id} className="bg-background border border-outline/20 rounded p-4">
+                    <div className="flex items-start justify-between gap-3 mb-3">
+                      <div>
+                        <div className={`font-mono text-[10px] uppercase tracking-widest ${participation.participating ? 'text-primary' : 'text-outline'}`}>
+                          {participation.participating ? 'PARTICIPATING' : 'WATCHING'} / {participation.ctf_source}
+                        </div>
+                        <h4 className="font-headline text-lg font-bold text-on-surface">{participation.ctf_title}</h4>
+                        <div className="font-mono text-[11px] text-outline mt-1">{formatDateTimeForDisplay(participation.start_time)} - {formatDateTimeForDisplay(participation.end_time)}</div>
+                      </div>
+                      <button onClick={() => handleDeleteCtfParticipation(participation)} className="text-error hover:bg-error/10 p-2 rounded border border-error/20">
+                        <span className="material-symbols-outlined text-sm">delete</span>
+                      </button>
+                    </div>
+                    <div className="space-y-2">
+                      {(participation.teams || []).map(team => (
+                        <div key={team.id} className="border border-outline/10 bg-surface-container-low rounded p-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <div>
+                              <div className="font-headline text-sm font-bold text-on-surface">{team.team_name}</div>
+                              <div className="font-mono text-[11px] text-outline">
+                                Position: {team.position || 'TBA'} {team.score ? `/ Score: ${team.score}` : ''}
+                              </div>
+                            </div>
+                            <div className="flex gap-2">
+                              <button onClick={() => handleEditCtfTeam(participation, team)} className="text-primary hover:bg-primary/10 p-2 rounded border border-primary/20">
+                                <span className="material-symbols-outlined text-sm">edit</span>
+                              </button>
+                              <button onClick={() => handleDeleteCtfTeam(team)} className="text-error hover:bg-error/10 p-2 rounded border border-error/20">
+                                <span className="material-symbols-outlined text-sm">delete</span>
+                              </button>
+                            </div>
+                          </div>
+                          <div className="font-mono text-[11px] text-on-surface-variant mt-2">
+                            {(team.members || []).map(member => member.name || member).join(', ') || 'No members assigned'}
+                          </div>
+                        </div>
+                      ))}
+                      {(!participation.teams || participation.teams.length === 0) && (
+                        <div className="font-mono text-xs text-outline border border-outline/10 rounded p-3">No teams assigned.</div>
+                      )}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {upcomingCtfs.length === 0 ? (
               <div className="md:col-span-2 xl:col-span-3 bg-surface-container-low p-8 text-center rounded border border-outline/20">
@@ -2313,6 +2631,9 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                       OPEN EVENT <span className="material-symbols-outlined text-sm">open_in_new</span>
                     </a>
                   )}
+                  <button onClick={() => selectCtfForParticipation(ctf)} className="text-primary font-mono text-xs flex items-center gap-1 hover:bg-primary/10 border border-primary/20 rounded px-3 py-2 transition-colors">
+                    SET PARTICIPATION <span className="material-symbols-outlined text-sm">groups</span>
+                  </button>
                 </article>
               ))
             )}

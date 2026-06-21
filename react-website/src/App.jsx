@@ -1,5 +1,5 @@
 /* Designed and engineered by liyander Rishwanth (CyberGhost05) */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import AdminPanel from './AdminPanel';
 import Teams from './Teams';
 import CVEs from './CVEs';
@@ -22,6 +22,7 @@ function App() {
   const [dbProjects, setDbProjects] = useState([]);
   const [individuals, setIndividuals] = useState([]);
   const [activeHeroIndex, setActiveHeroIndex] = useState(0);
+  const mainRef = useRef(null);
 
   const [isAutoMode, setIsAutoMode] = useState(false);
   const [autoState, setAutoState] = useState('list');
@@ -108,48 +109,66 @@ function App() {
     return () => clearInterval(interval);
   }, [projects, isAutoMode]);
 
+  const getAutoTourSteps = () => {
+    const productSteps = [
+      { view: 'portal', selectedProject: null },
+      ...projects.map((project, index) => ({ view: 'portal', selectedProject: project, heroIndex: index }))
+    ];
+    const individualSteps = [
+      { view: 'individuals', selectedIndividualId: null },
+      ...individuals.map(individual => ({ view: 'individual-profile', selectedIndividualId: individual.id }))
+    ];
+
+    return [
+      { view: 'dashboard' },
+      ...productSteps,
+      { view: 'teams' },
+      ...individualSteps,
+      { view: 'achievements' },
+      { view: 'cves' },
+      { view: 'upcoming-ctfs' },
+      { view: 'attendance' }
+    ].filter(step => step.view !== 'individual-profile' || step.selectedIndividualId);
+  };
+
+  const scrollAutoPage = () => {
+    const container = mainRef.current;
+    if (!container) return [];
+    container.scrollTo({ top: 0, behavior: 'smooth' });
+    const scrollDown = setTimeout(() => {
+      container.scrollTo({ top: Math.max(container.scrollHeight - container.clientHeight, 0), behavior: 'smooth' });
+    }, 1200);
+    const scrollUp = setTimeout(() => {
+      container.scrollTo({ top: 0, behavior: 'smooth' });
+    }, 4600);
+    return [scrollDown, scrollUp];
+  };
+
   // Auto Mode Engine
   useEffect(() => {
     if (!isAutoMode) return;
 
-    let timeout;
-    if (view === 'portal') {
-      if (projects.length === 0) return;
-      if (autoState === 'list') {
-        setSelectedProject(null);
-        setActiveHeroIndex(autoIndex % projects.length);
-        timeout = setTimeout(() => {
-          setSelectedProject(projects[autoIndex % projects.length]);
-          setAutoState('detail');
-        }, 3000);
-      } else if (autoState === 'detail') {
-        timeout = setTimeout(() => {
-          setAutoIndex((prev) => prev + 1);
-          setAutoState('list');
-        }, 5000);
-      }
-    } else if (view === 'individuals' || view === 'individual-profile') {
-      if (individuals.length === 0) return;
-      if (autoState === 'list') {
-        setView('individuals');
-        setSelectedIndividualId(null);
-        timeout = setTimeout(() => {
-          setSelectedIndividualId(individuals[autoIndex % individuals.length].id);
-          setView('individual-profile');
-          setAutoState('detail');
-        }, 3000);
-      } else if (autoState === 'detail') {
-        timeout = setTimeout(() => {
-          setAutoIndex((prev) => prev + 1);
-          setAutoState('list');
-        }, 5000);
-      }
-    } else {
-      // Auto mode not supported in other views, silently pause
+    const steps = getAutoTourSteps();
+    if (steps.length === 0) return;
+
+    const step = steps[autoIndex % steps.length];
+    setView(step.view);
+    setSelectedProject(step.selectedProject || null);
+    setSelectedIndividualId(step.selectedIndividualId || null);
+    if (typeof step.heroIndex === 'number') {
+      setActiveHeroIndex(step.heroIndex);
     }
 
-    return () => clearTimeout(timeout);
-  }, [isAutoMode, view, autoState, autoIndex, projects, individuals]);
+    const scrollTimers = scrollAutoPage();
+    const nextTimer = setTimeout(() => {
+      setAutoIndex((prev) => prev + 1);
+    }, 7200);
+
+    return () => {
+      scrollTimers.forEach(timer => clearTimeout(timer));
+      clearTimeout(nextTimer);
+    };
+  }, [isAutoMode, autoIndex, projects, individuals]);
 
   const activeHeroProject = projects[activeHeroIndex] || null;
   const defaultImage = "https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=2072&auto=format&fit=crop";
@@ -508,7 +527,7 @@ function App() {
         </div>
       </header>
 
-      <main className="flex-1 w-full overflow-y-auto">
+      <main ref={mainRef} className="flex-1 w-full overflow-y-auto">
         {view === 'admin' ? (
           adminUser ? (
             <AdminPanel onBack={() => setView('portal')} adminUser={adminUser} onLogout={() => setAdminUser(null)} />
@@ -542,10 +561,9 @@ function App() {
             setIsAutoMode(!isAutoMode);
             setAutoState('list');
             setAutoIndex(0);
-            if (view !== 'portal' && view !== 'individuals' && view !== 'individual-profile') {
-              setView('portal');
-              setSelectedProject(null);
-            }
+            setView('dashboard');
+            setSelectedProject(null);
+            setSelectedIndividualId(null);
           }}
           className={`px-4 py-2 flex items-center gap-2 rounded-full border shadow-lg font-mono text-xs font-bold tracking-widest transition-all duration-300 ${isAutoMode ? 'bg-primary text-on-primary-fixed border-primary shadow-[0_0_20px_rgba(0,245,255,0.6)] animate-pulse' : 'bg-surface-container/80 backdrop-blur-sm text-outline border-outline/30 hover:text-primary hover:border-primary/50'}`}
         >

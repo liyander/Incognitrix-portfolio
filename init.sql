@@ -77,6 +77,33 @@ CREATE TABLE IF NOT EXISTS upcoming_ctfs (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS ctf_participations (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    ctf_id VARCHAR(255) NOT NULL,
+    ctf_title VARCHAR(255) NOT NULL,
+    ctf_source VARCHAR(50) DEFAULT 'manual',
+    participating BOOLEAN DEFAULT TRUE,
+    status VARCHAR(50) DEFAULT 'participating',
+    start_time DATETIME,
+    end_time DATETIME,
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY ctf_participation_unique (ctf_source, ctf_id)
+);
+
+CREATE TABLE IF NOT EXISTS ctf_participation_teams (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    participation_id INT NOT NULL,
+    team_name VARCHAR(255) NOT NULL,
+    position INT NULL,
+    score VARCHAR(100),
+    notes TEXT,
+    members JSON,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS attendance_holidays (
     id INT AUTO_INCREMENT PRIMARY KEY,
     holiday_date DATE NOT NULL UNIQUE,
@@ -147,6 +174,8 @@ TRUNCATE TABLE achievements;
 TRUNCATE TABLE cves;
 TRUNCATE TABLE projects;
 TRUNCATE TABLE individual_work_logs;
+TRUNCATE TABLE ctf_participation_teams;
+TRUNCATE TABLE ctf_participations;
 TRUNCATE TABLE upcoming_ctfs;
 TRUNCATE TABLE individuals;
 TRUNCATE TABLE teams;

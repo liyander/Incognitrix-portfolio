@@ -258,6 +258,35 @@ async function ensureRuntimeSchema() {
             )
         `);
         await pool.query(`
+            CREATE TABLE IF NOT EXISTS ctf_participations (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                ctf_id VARCHAR(255) NOT NULL,
+                ctf_title VARCHAR(255) NOT NULL,
+                ctf_source VARCHAR(50) DEFAULT 'manual',
+                participating BOOLEAN DEFAULT TRUE,
+                status VARCHAR(50) DEFAULT 'participating',
+                start_time DATETIME,
+                end_time DATETIME,
+                notes TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY ctf_participation_unique (ctf_source, ctf_id)
+            )
+        `);
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS ctf_participation_teams (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                participation_id INT NOT NULL,
+                team_name VARCHAR(255) NOT NULL,
+                position INT NULL,
+                score VARCHAR(100),
+                notes TEXT,
+                members JSON,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        `);
+        await pool.query(`
             CREATE TABLE IF NOT EXISTS attendance_holidays (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 holiday_date DATE NOT NULL UNIQUE,
@@ -751,6 +780,181 @@ app.delete('/api/upcoming-ctfs/:id', async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Server error deleting upcoming CTF' });
+    }
+});
+
+const normalizeCtfDateTime = (value) => value ? String(value).replace('T', ' ').replace('Z', '').slice(0, 19) : null;
+
+const attachParticipationTeams = async (participations) => {
+    if (!participations.length) return [];
+    const ids = participations.map(row => row.id);
+    const placeholders = ids.map(() => '?').join(',');
+    const [teamRows] = await pool.query(
+        `SELECT * FROM ctf_participation_teams WHERE participation_id IN (${placeholders}) ORDER BY COALESCE(position, 9999), team_name`,
+        ids
+    );
+    const teamsByParticipation = new Map();
+    teamRows.forEach(team => {
+        const key = Number(team.participation_id);
+        if (!teamsByParticipation.has(key)) teamsByParticipation.set(key, []);
+        teamsByParticipation.get(key).push({
+            ...team,
+            members: parseJsonArray(team.members)
+        });
+    });
+    return participations.map(participation => ({
+        ...participation,
+        teams: teamsByParticipation.get(Number(participation.id)) || []
+    }));
+};
+
+app.get('/api/ctf-participations', async (req, res) => {
+    try {
+        const [rows] = await pool.query(`
+            SELECT *
+            FROM ctf_participations
+            ORDER BY COALESCE(start_time, NOW()) ASC, id DESC
+        `);
+        res.json(await attachParticipationTeams(rows));
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error fetching CTF participations' });
+    }
+});
+
+app.get('/api/ctf-participations/active', async (req, res) => {
+    try {
+        const [rows] = await pool.query(`
+            SELECT *
+            FROM ctf_participations
+            WHERE participating = TRUE
+              AND (
+                DATE(COALESCE(start_time, CURRENT_DATE)) <= CURRENT_DATE
+                AND DATE(COALESCE(end_time, start_time, CURRENT_DATE)) >= CURRENT_DATE
+              )
+            ORDER BY COALESCE(start_time, NOW()) ASC, ctf_title
+        `);
+        res.json(await attachParticipationTeams(rows));
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error fetching active CTF participations' });
+    }
+});
+
+app.post('/api/ctf-participations', async (req, res) => {
+    const { ctf_id, ctf_title, ctf_source, participating, status, start_time, end_time, notes } = req.body;
+    if (!ctf_id || !ctf_title) {
+        return res.status(400).json({ error: 'CTF id and title are required' });
+    }
+
+    try {
+        await pool.query(
+            `INSERT INTO ctf_participations
+                (ctf_id, ctf_title, ctf_source, participating, status, start_time, end_time, notes)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE
+                ctf_title = VALUES(ctf_title),
+                participating = VALUES(participating),
+                status = VALUES(status),
+                start_time = VALUES(start_time),
+                end_time = VALUES(end_time),
+                notes = VALUES(notes)`,
+            [
+                String(ctf_id),
+                ctf_title,
+                ctf_source || 'manual',
+                participating === false ? 0 : 1,
+                status || (participating === false ? 'watching' : 'participating'),
+                normalizeCtfDateTime(start_time),
+                normalizeCtfDateTime(end_time),
+                notes || ''
+            ]
+        );
+        const [rows] = await pool.query(
+            'SELECT * FROM ctf_participations WHERE ctf_id = ? AND ctf_source = ? LIMIT 1',
+            [String(ctf_id), ctf_source || 'manual']
+        );
+        res.status(201).json((await attachParticipationTeams(rows))[0]);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error saving CTF participation' });
+    }
+});
+
+app.delete('/api/ctf-participations/:id', async (req, res) => {
+    try {
+        await pool.query('DELETE FROM ctf_participation_teams WHERE participation_id = ?', [req.params.id]);
+        const [result] = await pool.query('DELETE FROM ctf_participations WHERE id = ?', [req.params.id]);
+        if (result.affectedRows === 0) return res.status(404).json({ error: 'CTF participation not found' });
+        res.json({ message: 'CTF participation removed successfully' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error removing CTF participation' });
+    }
+});
+
+app.post('/api/ctf-participations/:id/teams', async (req, res) => {
+    const { team_name, members, position, score, notes } = req.body;
+    if (!team_name) {
+        return res.status(400).json({ error: 'Team name is required' });
+    }
+
+    try {
+        const [result] = await pool.query(
+            `INSERT INTO ctf_participation_teams (participation_id, team_name, position, score, notes, members)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            [
+                req.params.id,
+                team_name,
+                position === '' || position === undefined ? null : Number(position),
+                score || '',
+                notes || '',
+                JSON.stringify(Array.isArray(members) ? members : [])
+            ]
+        );
+        res.status(201).json({ id: result.insertId, message: 'CTF team added successfully' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error adding CTF team' });
+    }
+});
+
+app.put('/api/ctf-participation-teams/:id', async (req, res) => {
+    const { team_name, members, position, score, notes } = req.body;
+    if (!team_name) {
+        return res.status(400).json({ error: 'Team name is required' });
+    }
+
+    try {
+        const [result] = await pool.query(
+            `UPDATE ctf_participation_teams
+             SET team_name = ?, position = ?, score = ?, notes = ?, members = ?
+             WHERE id = ?`,
+            [
+                team_name,
+                position === '' || position === undefined ? null : Number(position),
+                score || '',
+                notes || '',
+                JSON.stringify(Array.isArray(members) ? members : []),
+                req.params.id
+            ]
+        );
+        if (result.affectedRows === 0) return res.status(404).json({ error: 'CTF team not found' });
+        res.json({ message: 'CTF team updated successfully' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error updating CTF team' });
+    }
+});
+
+app.delete('/api/ctf-participation-teams/:id', async (req, res) => {
+    try {
+        const [result] = await pool.query('DELETE FROM ctf_participation_teams WHERE id = ?', [req.params.id]);
+        if (result.affectedRows === 0) return res.status(404).json({ error: 'CTF team not found' });
+        res.json({ message: 'CTF team deleted successfully' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error deleting CTF team' });
     }
 });
 

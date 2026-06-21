@@ -8,6 +8,7 @@ function Dashboard({ useDatabase }) {
   const [projects, setProjects] = useState([]);
   const [teams, setTeams] = useState([]);
   const [topContributors, setTopContributors] = useState([]);
+  const [activeCtfParticipations, setActiveCtfParticipations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -18,12 +19,13 @@ function Dashboard({ useDatabase }) {
       try {
         setLoading(true);
         if (useDatabase) {
-           const [indRes, projRes, achRes, cveRes, teamRes] = await Promise.all([
+           const [indRes, projRes, achRes, cveRes, teamRes, activeCtfRes] = await Promise.all([
              apiFetch('/api/individuals'),
              apiFetch('/api/projects'),
              apiFetch('/api/achievements'),
              apiFetch('/api/cves'),
-             apiFetch('/api/teams')
+             apiFetch('/api/teams'),
+             apiFetch('/api/ctf-participations/active')
            ]);
            if (indRes.ok && projRes.ok && achRes.ok && cveRes.ok && teamRes.ok) {
               const inds = await indRes.json();
@@ -31,6 +33,7 @@ function Dashboard({ useDatabase }) {
               const achievements = await achRes.json();
               const cves = await cveRes.json();
               const teamRows = await teamRes.json();
+              const activeCtfRows = activeCtfRes.ok ? await activeCtfRes.json() : [];
 
               let totalCert = 0;
               const safeInds = Array.isArray(inds) ? inds : [];
@@ -68,6 +71,7 @@ function Dashboard({ useDatabase }) {
               setRecentAchievements([...safeAchievements].sort((a, b) => (b.id || 0) - (a.id || 0)).slice(0, 6));
               setRecentCves([...safeCves].sort((a, b) => String(a.cve_number || '').localeCompare(String(b.cve_number || ''))).slice(0, 6));
               setProjects(safeProjects);
+              setActiveCtfParticipations(Array.isArray(activeCtfRows) ? activeCtfRows : []);
               setTeams([...safeTeams].sort((a, b) => {
                 if (a.name === 'Red Team') return -1;
                 if (b.name === 'Red Team') return 1;
@@ -160,6 +164,7 @@ function Dashboard({ useDatabase }) {
         setProjects([]);
         setTeams([]);
         setTopContributors([]);
+        setActiveCtfParticipations([]);
 
       } catch (err) {
         console.error(err);
@@ -266,6 +271,49 @@ function Dashboard({ useDatabase }) {
         </div>
       </div>
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+        {activeCtfParticipations.length > 0 && (
+          <section className="xl:col-span-12 bg-surface-container-low p-6 rounded border ghost-border relative overflow-hidden">
+            <div className="absolute top-0 right-0 text-9xl material-symbols-outlined text-primary/5 select-none pointer-events-none">emoji_flags</div>
+            <div className="flex items-center justify-between gap-4 mb-5">
+              <div>
+                <h3 className="font-headline text-2xl font-bold text-primary flex items-center gap-2">
+                  <span className="material-symbols-outlined text-primary-container">sports_score</span>
+                  Participating CTF Today
+                </h3>
+                <p className="font-mono text-xs text-outline mt-1">Configured by admin from the Upcoming CTF control center.</p>
+              </div>
+              <span className="font-mono text-xs text-primary border border-primary/30 bg-primary/10 rounded px-3 py-1">
+                {activeCtfParticipations.length} ACTIVE
+              </span>
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {activeCtfParticipations.map(participation => (
+                <article key={participation.id} className="bg-background/70 border border-outline/20 rounded p-4">
+                  <div className="font-mono text-[10px] uppercase tracking-widest text-primary-container mb-1">{participation.ctf_source}</div>
+                  <h4 className="font-headline text-xl font-bold text-on-surface">{participation.ctf_title}</h4>
+                  {participation.notes && <p className="font-mono text-xs text-on-surface-variant mt-2 line-clamp-2">{participation.notes}</p>}
+                  <div className="mt-4 space-y-2">
+                    {(participation.teams || []).map(team => (
+                      <div key={team.id} className="flex items-start justify-between gap-3 border border-outline/10 rounded bg-surface-container-low p-3">
+                        <div>
+                          <div className="font-headline text-sm font-bold text-on-surface">{team.team_name}</div>
+                          <div className="font-mono text-[11px] text-outline">{(team.members || []).map(member => member.name || member).join(', ') || 'Members TBA'}</div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <div className="font-mono text-[10px] text-outline uppercase">Position</div>
+                          <div className="font-headline text-lg font-bold text-primary">{team.position || 'TBA'}</div>
+                        </div>
+                      </div>
+                    ))}
+                    {(!participation.teams || participation.teams.length === 0) && (
+                      <div className="font-mono text-xs text-outline border border-outline/10 rounded p-3">Teams not assigned yet.</div>
+                    )}
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
+        )}
         <section className="xl:col-span-7 bg-surface-container-low p-6 rounded border ghost-border relative overflow-hidden">
           <div className="absolute top-0 right-0 text-9xl material-symbols-outlined text-primary/5 select-none pointer-events-none">radar</div>
           <h3 className="font-headline text-2xl font-bold text-primary mb-4 flex items-center gap-2">
