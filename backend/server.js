@@ -713,17 +713,52 @@ app.delete('/api/individuals/:id', async (req, res) => {
 // -----------------------------------------
 // UPCOMING CTF ROUTES
 // -----------------------------------------
+const CTFTIME_USER_AGENT = 'Incognitrix-Lab-Dashboard/1.0 (+https://incognitrix.local)';
+
 const mapCtftimeEvent = (event) => ({
     source: 'ctftime',
-    id: `ctftime-${event.id}`,
-    title: event.title,
+    id: `ctftime-${event.id || event.ctf_id}`,
+    title: event.title || 'Untitled CTF',
     url: event.url || event.ctftime_url || '',
     start_time: event.start,
     end_time: event.finish,
     format: event.format || 'CTF',
-    location: event.location || 'Online',
+    location: event.location || (event.onsite ? 'Onsite' : 'Online'),
     description: event.description || ''
 });
+
+const fetchCtftimeEvents = async (url) => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12000);
+
+    try {
+        const response = await fetch(url, {
+            signal: controller.signal,
+            headers: {
+                'Accept': 'application/json',
+                'User-Agent': CTFTIME_USER_AGENT
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error(`CTFTIME responded ${response.status}`);
+        }
+
+        const contentType = response.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+            throw new Error(`CTFTIME returned ${contentType || 'unknown content type'}`);
+        }
+
+        const data = await response.json();
+        if (!Array.isArray(data)) {
+            throw new Error('CTFTIME payload was not an array');
+        }
+
+        return data;
+    } finally {
+        clearTimeout(timeout);
+    }
+};
 
 app.get('/api/upcoming-ctfs', async (req, res) => {
     try {
@@ -737,15 +772,35 @@ app.get('/api/upcoming-ctfs', async (req, res) => {
         let ctftimeEvents = [];
         try {
             const now = Math.floor(Date.now() / 1000);
-            const response = await fetch(`https://ctftime.org/api/v1/events/?limit=20&start=${now}`, {
-                headers: {
-                    'User-Agent': 'Incognitrix-Lab-Dashboard/1.0'
-                }
-            });
+            const candidateUrls = [
+                `https://ctftime.org/api/v1/events/?limit=30&start=${now}`,
+                'https://ctftime.org/api/v1/events/?limit=30'
+            ];
+            let lastCtftimeError = null;
 
-            if (response.ok) {
-                const data = await response.json();
-                ctftimeEvents = Array.isArray(data) ? data.map(mapCtftimeEvent) : [];
+            for (const url of candidateUrls) {
+                try {
+                    const data = await fetchCtftimeEvents(url);
+                    const currentTime = Date.now();
+                    ctftimeEvents = data
+                        .map(mapCtftimeEvent)
+                        .filter(event => {
+                            if (!event.end_time) return true;
+                            const endTime = new Date(event.end_time).getTime();
+                            return Number.isNaN(endTime) || endTime >= currentTime;
+                        })
+                        .slice(0, 20);
+                    if (ctftimeEvents.length === 0) {
+                        throw new Error('CTFTIME returned no upcoming events for this query');
+                    }
+                    break;
+                } catch (err) {
+                    lastCtftimeError = err;
+                }
+            }
+
+            if (lastCtftimeError && ctftimeEvents.length === 0) {
+                console.error('CTFTIME fetch failed:', lastCtftimeError.message);
             }
         } catch (ctftimeErr) {
             console.error('CTFTIME fetch failed:', ctftimeErr.message);
