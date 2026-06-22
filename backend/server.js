@@ -760,6 +760,26 @@ const fetchCtftimeEvents = async (url) => {
     }
 };
 
+app.get('/api/ctftime-health', async (req, res) => {
+    const url = 'https://ctftime.org/api/v1/events/?limit=3';
+    try {
+        const data = await fetchCtftimeEvents(url);
+        res.json({
+            ok: true,
+            source: url,
+            count: data.length,
+            sample: data.slice(0, 3).map(mapCtftimeEvent)
+        });
+    } catch (err) {
+        console.error('CTFTIME health check failed:', err.message);
+        res.status(502).json({
+            ok: false,
+            source: url,
+            error: err.message
+        });
+    }
+});
+
 app.get('/api/upcoming-ctfs', async (req, res) => {
     try {
         const [manualRows] = await pool.query(`
@@ -773,22 +793,16 @@ app.get('/api/upcoming-ctfs', async (req, res) => {
         try {
             const now = Math.floor(Date.now() / 1000);
             const candidateUrls = [
-                `https://ctftime.org/api/v1/events/?limit=30&start=${now}`,
-                'https://ctftime.org/api/v1/events/?limit=30'
+                'https://ctftime.org/api/v1/events/?limit=30',
+                `https://ctftime.org/api/v1/events/?limit=30&start=${now}`
             ];
             let lastCtftimeError = null;
 
             for (const url of candidateUrls) {
                 try {
                     const data = await fetchCtftimeEvents(url);
-                    const currentTime = Date.now();
                     ctftimeEvents = data
                         .map(mapCtftimeEvent)
-                        .filter(event => {
-                            if (!event.end_time) return true;
-                            const endTime = new Date(event.end_time).getTime();
-                            return Number.isNaN(endTime) || endTime >= currentTime;
-                        })
                         .slice(0, 20);
                     if (ctftimeEvents.length === 0) {
                         throw new Error('CTFTIME returned no upcoming events for this query');

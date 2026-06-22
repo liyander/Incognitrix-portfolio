@@ -4,15 +4,21 @@ import React, { useEffect, useState } from 'react';
 function UpcomingCTFs() {
   const [ctfs, setCtfs] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [feedError, setFeedError] = useState('');
 
   const fetchCtfs = async () => {
     setLoading(true);
+    setFeedError('');
     try {
       const response = await fetch('/api/upcoming-ctfs');
       const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error || `Feed request failed with ${response.status}`);
+      }
       setCtfs(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error('Failed to fetch upcoming CTFs', err);
+      setFeedError(err.message || 'Failed to fetch upcoming CTFs.');
       setCtfs([]);
     } finally {
       setLoading(false);
@@ -38,8 +44,10 @@ function UpcomingCTFs() {
         <header className="mb-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
           <div>
             <div className="flex items-center gap-2 mb-2">
-              <span className="w-2 h-2 bg-secondary rounded-full animate-pulse"></span>
-              <span className="font-label text-[10px] text-secondary uppercase tracking-widest">CTFTIME Feed Connected</span>
+              <span className={`w-2 h-2 rounded-full ${feedError ? 'bg-error' : 'bg-secondary animate-pulse'}`}></span>
+              <span className={`font-label text-[10px] uppercase tracking-widest ${feedError ? 'text-error' : 'text-secondary'}`}>
+                {feedError ? 'CTFTIME Feed Issue' : 'CTFTIME Feed Connected'}
+              </span>
             </div>
             <h1 className="font-headline text-4xl md:text-5xl font-bold text-on-surface tracking-tight">Upcoming CTFs</h1>
             <p className="font-body text-on-surface-variant mt-3 max-w-2xl text-sm leading-relaxed">
@@ -57,6 +65,12 @@ function UpcomingCTFs() {
 
         {loading ? (
           <div className="text-center text-primary font-label h-64 flex items-center justify-center">LOADING CTF FEED...</div>
+        ) : feedError ? (
+          <div className="bg-error-container/20 border border-error/30 p-10 text-center">
+            <p className="font-label text-sm text-error uppercase tracking-widest">CTFTIME feed could not load</p>
+            <p className="font-mono text-xs text-on-surface-variant mt-3">{feedError}</p>
+            <p className="font-mono text-[11px] text-outline mt-3">Open /api/ctftime-health to test the backend connection.</p>
+          </div>
         ) : ctfs.length === 0 ? (
           <div className="bg-surface-container-low border border-outline-variant/20 p-10 text-center">
             <p className="font-label text-sm text-outline uppercase tracking-widest">No upcoming CTFs available right now.</p>
