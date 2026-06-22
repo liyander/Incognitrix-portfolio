@@ -3,6 +3,8 @@ FROM ${NODE_IMAGE}
 
 WORKDIR /app
 
+RUN apk add --no-cache ca-certificates curl && update-ca-certificates
+
 COPY package*.json ./
 
 RUN npm ci

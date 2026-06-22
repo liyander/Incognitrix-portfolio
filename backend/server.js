@@ -3,10 +3,16 @@ const mysql = require('mysql2/promise');
 const cors = require('cors');
 const multer = require('multer');
 const path = require('path');
+const dns = require('dns');
+const { execFile } = require('child_process');
+const { promisify } = require('util');
 require('dotenv').config();
 
 const app = express();
 const port = 1337;
+const execFileAsync = promisify(execFile);
+
+dns.setDefaultResultOrder?.('ipv4first');
 
 // Middleware
 app.use(cors());
@@ -760,10 +766,38 @@ const fetchCtftimeEvents = async (url) => {
     }
 };
 
+const fetchCtftimeEventsWithFallback = async (url) => {
+    try {
+        return await fetchCtftimeEvents(url);
+    } catch (fetchErr) {
+        try {
+            const { stdout } = await execFileAsync('curl', [
+                '-sS',
+                '--fail',
+                '--location',
+                '--connect-timeout', '10',
+                '--max-time', '20',
+                '-H', `User-Agent: ${CTFTIME_USER_AGENT}`,
+                '-H', 'Accept: application/json',
+                url
+            ], { maxBuffer: 1024 * 1024 });
+            const data = JSON.parse(stdout);
+            if (!Array.isArray(data)) {
+                throw new Error('CTFTIME curl payload was not an array');
+            }
+            return data;
+        } catch (curlErr) {
+            const error = new Error(`Node fetch failed (${fetchErr.message}); curl fallback failed (${curlErr.message})`);
+            error.cause = fetchErr.cause || curlErr;
+            throw error;
+        }
+    }
+};
+
 app.get('/api/ctftime-health', async (req, res) => {
     const url = 'https://ctftime.org/api/v1/events/?limit=3';
     try {
-        const data = await fetchCtftimeEvents(url);
+        const data = await fetchCtftimeEventsWithFallback(url);
         res.json({
             ok: true,
             source: url,
@@ -775,7 +809,12 @@ app.get('/api/ctftime-health', async (req, res) => {
         res.status(502).json({
             ok: false,
             source: url,
-            error: err.message
+            error: err.message,
+            cause: err.cause ? {
+                name: err.cause.name,
+                code: err.cause.code,
+                message: err.cause.message
+            } : null
         });
     }
 });
@@ -800,7 +839,7 @@ app.get('/api/upcoming-ctfs', async (req, res) => {
 
             for (const url of candidateUrls) {
                 try {
-                    const data = await fetchCtftimeEvents(url);
+                    const data = await fetchCtftimeEventsWithFallback(url);
                     ctftimeEvents = data
                         .map(mapCtftimeEvent)
                         .slice(0, 20);
