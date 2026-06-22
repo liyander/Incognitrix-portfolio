@@ -24,20 +24,16 @@ services:
       dockerfile: Dockerfile
       args:
         NODE_IMAGE: ${NODE_IMAGE:-node:20-alpine}
-    dns:
-      - 1.1.1.1
-      - 8.8.8.8
+    network_mode: "host"
     restart: always
     depends_on:
       db:
         condition: service_healthy
     environment:
-      - DB_HOST=db
+      - DB_HOST=127.0.0.1
       - DB_USER=CTF
       - DB_PASSWORD=root
       - DB_NAME=incognitrix_db_new
-    ports:
-      - "1337:1337"
     volumes:
       - ./backend:/app
       - /app/node_modules
@@ -48,14 +44,10 @@ services:
       dockerfile: Dockerfile
       args:
         NODE_IMAGE: ${NODE_IMAGE:-node:20-alpine}
-    dns:
-      - 1.1.1.1
-      - 8.8.8.8
+    network_mode: "host"
     restart: always
     environment:
-      - VITE_BACKEND_URL=http://backend:1337
-    ports:
-      - "7777:7777"
+      - VITE_BACKEND_URL=http://127.0.0.1:1337
     depends_on:
       - backend
     volumes:
