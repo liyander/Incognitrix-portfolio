@@ -9,6 +9,7 @@ function Dashboard({ useDatabase }) {
   const [teams, setTeams] = useState([]);
   const [topContributors, setTopContributors] = useState([]);
   const [activeCtfParticipations, setActiveCtfParticipations] = useState([]);
+  const [currentLabPlan, setCurrentLabPlan] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -19,13 +20,14 @@ function Dashboard({ useDatabase }) {
       try {
         setLoading(true);
         if (useDatabase) {
-           const [indRes, projRes, achRes, cveRes, teamRes, activeCtfRes] = await Promise.all([
+           const [indRes, projRes, achRes, cveRes, teamRes, activeCtfRes, labPlanRes] = await Promise.all([
              apiFetch('/api/individuals'),
              apiFetch('/api/projects'),
              apiFetch('/api/achievements'),
              apiFetch('/api/cves'),
              apiFetch('/api/teams'),
-             apiFetch('/api/ctf-participations/active')
+             apiFetch('/api/ctf-participations/active'),
+             apiFetch('/api/lab-plan')
            ]);
            if (indRes.ok && projRes.ok && achRes.ok && cveRes.ok && teamRes.ok) {
               const inds = await indRes.json();
@@ -34,6 +36,7 @@ function Dashboard({ useDatabase }) {
               const cves = await cveRes.json();
               const teamRows = await teamRes.json();
               const activeCtfRows = activeCtfRes.ok ? await activeCtfRes.json() : [];
+              const labPlan = labPlanRes.ok ? await labPlanRes.json() : null;
 
               let totalCert = 0;
               const safeInds = Array.isArray(inds) ? inds : [];
@@ -72,6 +75,7 @@ function Dashboard({ useDatabase }) {
               setRecentCves([...safeCves].sort((a, b) => String(a.cve_number || '').localeCompare(String(b.cve_number || ''))).slice(0, 6));
               setProjects(safeProjects);
               setActiveCtfParticipations(Array.isArray(activeCtfRows) ? activeCtfRows : []);
+              setCurrentLabPlan(labPlan);
               setTeams([...safeTeams].sort((a, b) => {
                 if (a.name === 'Red Team') return -1;
                 if (b.name === 'Red Team') return 1;
@@ -165,6 +169,7 @@ function Dashboard({ useDatabase }) {
         setTeams([]);
         setTopContributors([]);
         setActiveCtfParticipations([]);
+        setCurrentLabPlan(null);
 
       } catch (err) {
         console.error(err);
@@ -182,6 +187,8 @@ function Dashboard({ useDatabase }) {
   const latestAchievement = recentAchievements[0];
   const leadFinder = topContributors[0];
   const projectReadiness = projects.length ? Math.round((projects.filter(project => String(project.status || '').toLowerCase().includes('ongoing') || String(project.status || '').toLowerCase().includes('active')).length / projects.length) * 100) : 0;
+  const scheduleLines = String(currentLabPlan?.daily_schedule || '').split('\n').map(line => line.trim()).filter(Boolean);
+  const targetLines = String(currentLabPlan?.weekly_target || '').split('\n').map(line => line.trim()).filter(Boolean);
 
   if (loading) {
     return (
@@ -271,6 +278,57 @@ function Dashboard({ useDatabase }) {
         </div>
       </div>
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+        {(scheduleLines.length > 0 || targetLines.length > 0) && (
+          <section className="xl:col-span-12 bg-surface-container-low p-6 rounded border ghost-border relative overflow-hidden">
+            <div className="absolute top-0 right-0 text-9xl material-symbols-outlined text-primary/5 select-none pointer-events-none">event_note</div>
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-5">
+              <div>
+                <h3 className="font-headline text-2xl font-bold text-primary flex items-center gap-2">
+                  <span className="material-symbols-outlined text-primary-container">calendar_month</span>
+                  Daily Schedule & Weekly Target
+                </h3>
+                <p className="font-mono text-xs text-outline mt-1">
+                  {currentLabPlan?.plan_date || 'Today'} / {currentLabPlan?.target_week || 'Current Week'}
+                </p>
+              </div>
+              <span className="font-mono text-xs text-primary border border-primary/30 bg-primary/10 rounded px-3 py-1">
+                ADMIN SET
+              </span>
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="bg-background/70 border border-outline/20 rounded p-4">
+                <div className="font-mono text-[10px] uppercase tracking-widest text-outline mb-3">Today</div>
+                {scheduleLines.length > 0 ? (
+                  <div className="space-y-2">
+                    {scheduleLines.map((line, index) => (
+                      <div key={`${line}-${index}`} className="flex gap-3 border-b border-outline/10 last:border-b-0 pb-2 last:pb-0">
+                        <span className="font-mono text-xs text-primary">{String(index + 1).padStart(2, '0')}</span>
+                        <span className="font-mono text-sm text-on-surface-variant">{line}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="font-mono text-sm text-outline">No daily schedule set.</div>
+                )}
+              </div>
+              <div className="bg-background/70 border border-outline/20 rounded p-4">
+                <div className="font-mono text-[10px] uppercase tracking-widest text-outline mb-3">This Week</div>
+                {targetLines.length > 0 ? (
+                  <div className="space-y-2">
+                    {targetLines.map((line, index) => (
+                      <div key={`${line}-${index}`} className="flex gap-3 border-b border-outline/10 last:border-b-0 pb-2 last:pb-0">
+                        <span className="material-symbols-outlined text-primary text-sm mt-0.5">target</span>
+                        <span className="font-mono text-sm text-on-surface-variant">{line}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="font-mono text-sm text-outline">No weekly target set.</div>
+                )}
+              </div>
+            </div>
+          </section>
+        )}
         {activeCtfParticipations.length > 0 && (
           <section className="xl:col-span-12 bg-surface-container-low p-6 rounded border ghost-border relative overflow-hidden">
             <div className="absolute top-0 right-0 text-9xl material-symbols-outlined text-primary/5 select-none pointer-events-none">emoji_flags</div>

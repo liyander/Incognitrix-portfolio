@@ -104,6 +104,17 @@ CREATE TABLE IF NOT EXISTS ctf_participation_teams (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS lab_plans (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    plan_date DATE NOT NULL UNIQUE,
+    target_week VARCHAR(20) NOT NULL,
+    daily_schedule TEXT,
+    weekly_target TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX lab_plans_week_idx (target_week)
+);
+
 CREATE TABLE IF NOT EXISTS attendance_holidays (
     id INT AUTO_INCREMENT PRIMARY KEY,
     holiday_date DATE NOT NULL UNIQUE,
@@ -176,6 +187,7 @@ TRUNCATE TABLE projects;
 TRUNCATE TABLE individual_work_logs;
 TRUNCATE TABLE ctf_participation_teams;
 TRUNCATE TABLE ctf_participations;
+TRUNCATE TABLE lab_plans;
 TRUNCATE TABLE upcoming_ctfs;
 TRUNCATE TABLE individuals;
 TRUNCATE TABLE teams;

@@ -134,14 +134,31 @@ function App() {
   const scrollAutoPage = () => {
     const container = mainRef.current;
     if (!container) return [];
-    container.scrollTo({ top: 0, behavior: 'smooth' });
+
+    const handles = [];
+    const slowScrollTo = (targetTop) => {
+      const interval = setInterval(() => {
+        const currentTop = container.scrollTop;
+        const distance = targetTop - currentTop;
+        if (Math.abs(distance) < 6) {
+          container.scrollTop = targetTop;
+          clearInterval(interval);
+          return;
+        }
+        container.scrollTop = currentTop + (distance * 0.025);
+      }, 16);
+      handles.push(interval);
+    };
+
+    container.scrollTo({ top: 0, behavior: 'auto' });
     const scrollDown = setTimeout(() => {
-      container.scrollTo({ top: Math.max(container.scrollHeight - container.clientHeight, 0), behavior: 'smooth' });
-    }, 1200);
+      slowScrollTo(Math.max(container.scrollHeight - container.clientHeight, 0));
+    }, 1500);
     const scrollUp = setTimeout(() => {
-      container.scrollTo({ top: 0, behavior: 'smooth' });
-    }, 4600);
-    return [scrollDown, scrollUp];
+      slowScrollTo(0);
+    }, 9000);
+    handles.push(scrollDown, scrollUp);
+    return handles;
   };
 
   // Auto Mode Engine
@@ -162,10 +179,13 @@ function App() {
     const scrollTimers = scrollAutoPage();
     const nextTimer = setTimeout(() => {
       setAutoIndex((prev) => prev + 1);
-    }, 7200);
+    }, 15000);
 
     return () => {
-      scrollTimers.forEach(timer => clearTimeout(timer));
+      scrollTimers.forEach(timer => {
+        clearTimeout(timer);
+        clearInterval(timer);
+      });
       clearTimeout(nextTimer);
     };
   }, [isAutoMode, autoIndex, projects, individuals]);

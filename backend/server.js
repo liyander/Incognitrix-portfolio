@@ -287,6 +287,18 @@ async function ensureRuntimeSchema() {
             )
         `);
         await pool.query(`
+            CREATE TABLE IF NOT EXISTS lab_plans (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                plan_date DATE NOT NULL UNIQUE,
+                target_week VARCHAR(20) NOT NULL,
+                daily_schedule TEXT,
+                weekly_target TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX lab_plans_week_idx (target_week)
+            )
+        `);
+        await pool.query(`
             CREATE TABLE IF NOT EXISTS attendance_holidays (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 holiday_date DATE NOT NULL UNIQUE,
@@ -955,6 +967,96 @@ app.delete('/api/ctf-participation-teams/:id', async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Server error deleting CTF team' });
+    }
+});
+
+const getIsoWeekValue = (date) => {
+    const target = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+    const dayNumber = target.getUTCDay() || 7;
+    target.setUTCDate(target.getUTCDate() + 4 - dayNumber);
+    const yearStart = new Date(Date.UTC(target.getUTCFullYear(), 0, 1));
+    const weekNumber = Math.ceil((((target - yearStart) / 86400000) + 1) / 7);
+    return `${target.getUTCFullYear()}-W${String(weekNumber).padStart(2, '0')}`;
+};
+
+app.get('/api/lab-plan', async (req, res) => {
+    const today = formatDateKey(new Date());
+    const planDate = req.query.date || today;
+    const targetWeek = req.query.week || getIsoWeekValue(new Date(`${planDate}T00:00:00`));
+
+    try {
+        const [dailyRows] = await pool.query(
+            'SELECT * FROM lab_plans WHERE plan_date = ? LIMIT 1',
+            [planDate]
+        );
+        const [weeklyRows] = await pool.query(
+            `SELECT *
+             FROM lab_plans
+             WHERE target_week = ? AND weekly_target IS NOT NULL AND weekly_target <> ''
+             ORDER BY updated_at DESC, plan_date DESC
+             LIMIT 1`,
+            [targetWeek]
+        );
+        res.json({
+            plan_date: planDate,
+            target_week: targetWeek,
+            daily_schedule: dailyRows[0]?.daily_schedule || '',
+            weekly_target: weeklyRows[0]?.weekly_target || dailyRows[0]?.weekly_target || '',
+            daily_plan: dailyRows[0] || null,
+            weekly_plan: weeklyRows[0] || null
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error fetching lab plan' });
+    }
+});
+
+app.get('/api/admin/lab-plans', async (req, res) => {
+    try {
+        const [rows] = await pool.query(`
+            SELECT *
+            FROM lab_plans
+            ORDER BY plan_date DESC, id DESC
+            LIMIT 30
+        `);
+        res.json(rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error fetching lab plans' });
+    }
+});
+
+app.post('/api/admin/lab-plans', async (req, res) => {
+    const { plan_date, target_week, daily_schedule, weekly_target } = req.body;
+    if (!plan_date || !target_week) {
+        return res.status(400).json({ error: 'Plan date and target week are required' });
+    }
+
+    try {
+        await pool.query(
+            `INSERT INTO lab_plans (plan_date, target_week, daily_schedule, weekly_target)
+             VALUES (?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE
+                target_week = VALUES(target_week),
+                daily_schedule = VALUES(daily_schedule),
+                weekly_target = VALUES(weekly_target)`,
+            [plan_date, target_week, daily_schedule || '', weekly_target || '']
+        );
+        res.status(201).json({ message: 'Lab plan saved successfully' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error saving lab plan' });
+    }
+});
+
+app.delete('/api/admin/lab-plans/:id', async (req, res) => {
+    try {
+        const [result] = await pool.query('DELETE FROM lab_plans WHERE id = ?', [req.params.id]);
+        if (result.affectedRows === 0) return res.status(404).json({ error: 'Lab plan not found' });
+        res.json({ message: 'Lab plan deleted successfully' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error deleting lab plan' });
     }
 });
 

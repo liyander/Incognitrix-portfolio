@@ -10,6 +10,7 @@ const CVES_API_URL = '/api/cves';
 const ACHIEVEMENTS_API_URL = '/api/achievements';
 const UPCOMING_CTFS_API_URL = '/api/upcoming-ctfs';
 const CTF_PARTICIPATIONS_API_URL = '/api/ctf-participations';
+const LAB_PLANS_API_URL = '/api/admin/lab-plans';
 
 const getCurrentWeekValue = () => {
   const current = new Date();
@@ -65,6 +66,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
   const [achievements, setAchievements] = useState([]);
   const [upcomingCtfs, setUpcomingCtfs] = useState([]);
   const [ctfParticipations, setCtfParticipations] = useState([]);
+  const [labPlans, setLabPlans] = useState([]);
   const [attendanceStats, setAttendanceStats] = useState([]);
   const [attendanceRequests, setAttendanceRequests] = useState([]);
   const [attendanceHolidays, setAttendanceHolidays] = useState([]);
@@ -94,6 +96,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
   const [ctfParticipationFormData, setCtfParticipationFormData] = useState({ ctf_id: '', ctf_title: '', ctf_source: 'manual', start_time: '', end_time: '', participating: true, notes: '' });
   const [ctfTeamFormData, setCtfTeamFormData] = useState({ participation_id: '', team_name: '', position: '', score: '', notes: '', members: [] });
   const [editingCtfTeamId, setEditingCtfTeamId] = useState(null);
+  const [labPlanFormData, setLabPlanFormData] = useState({ plan_date: getCurrentDateValue(), target_week: getCurrentWeekValue(), daily_schedule: '', weekly_target: '' });
   const [holidayFormData, setHolidayFormData] = useState({ holiday_date: '', title: '', holiday_type: 'Institute Holiday' });
   const [odFormData, setOdFormData] = useState({ user_id: '', od_date: '', reason: '' });
   const [attendanceExportWeek, setAttendanceExportWeek] = useState(getCurrentWeekValue());
@@ -162,6 +165,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
     fetchAchievements();
     fetchUpcomingCtfs();
     fetchCtfParticipations();
+    fetchLabPlans();
     fetchAttendance();
     fetchAttendanceRequests();
     fetchAttendanceHolidays();
@@ -202,6 +206,16 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
       setCtfParticipations(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error('Failed to fetch CTF participations', err);
+    }
+  };
+
+  const fetchLabPlans = async () => {
+    try {
+      const response = await fetch(LAB_PLANS_API_URL);
+      const data = await response.json();
+      setLabPlans(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('Failed to fetch lab plans', err);
     }
   };
 
@@ -400,6 +414,10 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
 
   const handleCtfTeamChange = (e) => {
     setCtfTeamFormData({ ...ctfTeamFormData, [e.target.name]: e.target.value });
+  };
+
+  const handleLabPlanChange = (e) => {
+    setLabPlanFormData({ ...labPlanFormData, [e.target.name]: e.target.value });
   };
 
   const selectCtfForParticipation = (ctf) => {
@@ -697,6 +715,56 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
     } catch (err) {
       console.error('Failed to remove CTF participation', err);
       showAlert('Failed to remove CTF participation. Check console.', 'error');
+    }
+  };
+
+  const handleLabPlanSubmit = async (e) => {
+    e.preventDefault();
+    if (!labPlanFormData.plan_date || !labPlanFormData.target_week) {
+      showAlert('Plan date and target week are required.', 'error');
+      return;
+    }
+
+    try {
+      const response = await fetch(LAB_PLANS_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(labPlanFormData)
+      });
+      if (!response.ok) {
+        showAlert('Failed to save lab schedule.', 'error');
+        return;
+      }
+      fetchLabPlans();
+      showAlert('Daily schedule and weekly target saved.');
+    } catch (err) {
+      console.error('Failed to save lab plan', err);
+      showAlert('Failed to save lab schedule. Check console.', 'error');
+    }
+  };
+
+  const handleEditLabPlan = (plan) => {
+    setLabPlanFormData({
+      plan_date: String(plan.plan_date || '').slice(0, 10),
+      target_week: plan.target_week || getCurrentWeekValue(),
+      daily_schedule: plan.daily_schedule || '',
+      weekly_target: plan.weekly_target || ''
+    });
+    setActiveAdminView('lab-plan');
+  };
+
+  const handleDeleteLabPlan = async (plan) => {
+    if (!(await showConfirm(`Delete schedule for ${String(plan.plan_date).slice(0, 10)}?`))) return;
+    try {
+      const response = await fetch(`${LAB_PLANS_API_URL}/${plan.id}`, { method: 'DELETE' });
+      if (!response.ok) {
+        showAlert('Failed to delete lab schedule.', 'error');
+        return;
+      }
+      fetchLabPlans();
+    } catch (err) {
+      console.error('Failed to delete lab plan', err);
+      showAlert('Failed to delete lab schedule. Check console.', 'error');
     }
   };
 
@@ -1193,6 +1261,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
         {activeAdminView === 'projects-list' && "Manage your project listings. Actions are logged."}
         {activeAdminView === 'add-project' && "Initialize a new project operation into the master database."}
         {activeAdminView === 'individual-detail' && "Inspect individual details, current work, and stored daily work timeline."}
+        {activeAdminView === 'lab-plan' && "Set the daily schedule and weekly target visible to normal users."}
       </p>
 
       {/* DASHBOARD VIEW */}
@@ -1291,6 +1360,22 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
             <p className="font-mono text-sm text-on-surface-variant line-clamp-2">Manage Lab achievements and awards.</p>
             <div className="mt-6 flex justify-between items-center text-outline text-[10px] font-mono">
               <span>{achievements?.length || 0} Total</span>
+              <span className="group-hover:text-primary transition-colors">ACCESS &rarr;</span>
+            </div>
+          </div>
+
+          {/* Lab Plan Card */}
+          <div 
+            onClick={() => setActiveAdminView('lab-plan')}
+            className="group cursor-pointer bg-surface-container-low p-6 rounded border ghost-border hover:border-primary-container hover:shadow-[0_0_20px_rgba(0,245,255,0.15)] transition-all"
+          >
+            <div className="flex items-center gap-4 mb-4 text-primary-container group-hover:drop-shadow-[0_0_8px_rgba(0,245,255,0.8)]">
+              <span className="material-symbols-outlined text-3xl">event_note</span>
+              <h2 className="font-headline text-2xl font-bold tracking-wider">SCHEDULE</h2>
+            </div>
+            <p className="font-mono text-sm text-on-surface-variant line-clamp-2">Set daily schedule and weekly target visible on the user dashboard.</p>
+            <div className="mt-6 flex justify-between items-center text-outline text-[10px] font-mono">
+              <span>{labPlans?.length || 0} Saved</span>
               <span className="group-hover:text-primary transition-colors">ACCESS &rarr;</span>
             </div>
           </div>
@@ -1549,6 +1634,112 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
           </div>
         </div>
         </>
+      )}
+
+      {/* LAB PLAN VIEW */}
+      {activeAdminView === 'lab-plan' && (
+        <div className="flex flex-col gap-6">
+          <div className="bg-surface-container-low p-6 rounded border ghost-border">
+            <div className="flex items-center gap-4 mb-2 text-primary-container">
+              <span className="material-symbols-outlined text-3xl">event_note</span>
+              <h2 className="font-headline text-2xl font-bold tracking-wider">DAILY SCHEDULE / WEEKLY TARGET</h2>
+            </div>
+            <p className="font-mono text-sm text-on-surface-variant">This plan appears on the normal user dashboard for the selected day and week.</p>
+          </div>
+
+          <form onSubmit={handleLabPlanSubmit} className="bg-background border border-outline/20 rounded p-5 grid grid-cols-1 lg:grid-cols-12 gap-4 font-mono text-xs">
+            <div className="lg:col-span-3">
+              <label className="text-outline block mb-1">Schedule Date</label>
+              <input
+                type="date"
+                name="plan_date"
+                value={labPlanFormData.plan_date}
+                onChange={handleLabPlanChange}
+                required
+                className="w-full bg-surface-container-low border border-outline/30 rounded p-2.5 text-on-surface focus:border-primary focus:outline-none"
+              />
+            </div>
+            <div className="lg:col-span-3">
+              <label className="text-outline block mb-1">Target Week</label>
+              <input
+                type="week"
+                name="target_week"
+                value={labPlanFormData.target_week}
+                onChange={handleLabPlanChange}
+                required
+                className="w-full bg-surface-container-low border border-outline/30 rounded p-2.5 text-on-surface focus:border-primary focus:outline-none"
+              />
+            </div>
+            <div className="lg:col-span-6 flex items-end">
+              <button type="submit" className="w-full bg-primary-container text-on-primary-fixed px-4 py-3 rounded font-headline font-bold hover:shadow-[0_0_18px_rgba(0,245,255,0.35)] transition-all">
+                SAVE PLAN
+              </button>
+            </div>
+            <div className="lg:col-span-6">
+              <label className="text-outline block mb-1">Daily Schedule</label>
+              <textarea
+                name="daily_schedule"
+                value={labPlanFormData.daily_schedule}
+                onChange={handleLabPlanChange}
+                rows="8"
+                className="w-full bg-surface-container-low border border-outline/30 rounded p-3 text-on-surface focus:border-primary focus:outline-none"
+                placeholder="09:30 - Standup&#10;10:00 - CVE simulation work&#10;14:00 - Range testing"
+              />
+            </div>
+            <div className="lg:col-span-6">
+              <label className="text-outline block mb-1">Weekly Target</label>
+              <textarea
+                name="weekly_target"
+                value={labPlanFormData.weekly_target}
+                onChange={handleLabPlanChange}
+                rows="8"
+                className="w-full bg-surface-container-low border border-outline/30 rounded p-3 text-on-surface focus:border-primary focus:outline-none"
+                placeholder="Complete planned modules, publish challenge updates, validate weekly CTF participation goals..."
+              />
+            </div>
+          </form>
+
+          <div className="bg-surface-container-low border border-outline/20 rounded p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-headline text-xl font-bold text-primary">RECENT SAVED PLANS</h3>
+              <span className="font-mono text-xs text-outline">{labPlans.length} RECORDS</span>
+            </div>
+            {labPlans.length === 0 ? (
+              <div className="font-mono text-xs text-outline border border-outline/10 rounded p-4">No schedules saved yet.</div>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {labPlans.map(plan => (
+                  <article key={plan.id} className="bg-background border border-outline/20 rounded p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="font-mono text-[10px] uppercase tracking-widest text-primary-container">{String(plan.plan_date).slice(0, 10)} / {plan.target_week}</div>
+                        <h4 className="font-headline text-lg font-bold text-on-surface mt-1">Lab Plan</h4>
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => handleEditLabPlan(plan)} className="text-primary hover:bg-primary/10 p-2 rounded border border-primary/20">
+                          <span className="material-symbols-outlined text-sm">edit</span>
+                        </button>
+                        <button onClick={() => handleDeleteLabPlan(plan)} className="text-error hover:bg-error/10 p-2 rounded border border-error/20">
+                          <span className="material-symbols-outlined text-sm">delete</span>
+                        </button>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4 font-mono text-xs">
+                      <div className="border border-outline/10 rounded p-3">
+                        <div className="text-outline uppercase mb-2">Schedule</div>
+                        <p className="text-on-surface-variant whitespace-pre-wrap line-clamp-5">{plan.daily_schedule || 'No daily schedule set.'}</p>
+                      </div>
+                      <div className="border border-outline/10 rounded p-3">
+                        <div className="text-outline uppercase mb-2">Weekly Target</div>
+                        <p className="text-on-surface-variant whitespace-pre-wrap line-clamp-5">{plan.weekly_target || 'No weekly target set.'}</p>
+                      </div>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {/* PROJECTS LIST VIEW */}
