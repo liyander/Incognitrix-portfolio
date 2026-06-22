@@ -24,6 +24,9 @@ services:
       dockerfile: Dockerfile
       args:
         NODE_IMAGE: ${NODE_IMAGE:-node:20-alpine}
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     restart: always
     depends_on:
       db:
@@ -45,6 +48,9 @@ services:
       dockerfile: Dockerfile
       args:
         NODE_IMAGE: ${NODE_IMAGE:-node:20-alpine}
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     restart: always
     environment:
       - VITE_BACKEND_URL=http://backend:1337
