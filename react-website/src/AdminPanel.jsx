@@ -562,10 +562,14 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ confirmation: 'RESET ATTENDANCE' })
       });
-      const data = await response.json();
+      const isJsonResponse = response.headers.get('content-type')?.includes('application/json');
+      const data = isJsonResponse ? await response.json() : null;
 
       if (!response.ok) {
-        showAlert(data.error || 'Failed to reset attendance.', 'error');
+        const fallbackMessage = response.status === 404
+          ? 'Attendance reset endpoint is unavailable. Restart the backend server and try again.'
+          : 'Failed to reset attendance.';
+        showAlert(data?.error || fallbackMessage, 'error');
         return;
       }
 
