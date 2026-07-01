@@ -1633,6 +1633,38 @@ app.get('/api/admin/attendance', async (req, res) => {
     }
 });
 
+app.delete('/api/admin/attendance', async (req, res) => {
+    if (req.body?.confirmation !== 'RESET ATTENDANCE') {
+        return res.status(400).json({ error: 'Attendance reset confirmation is required' });
+    }
+
+    let connection;
+    try {
+        connection = await pool.getConnection();
+        await connection.beginTransaction();
+
+        const [requestResult] = await connection.query('DELETE FROM attendance_requests');
+        const [odResult] = await connection.query('DELETE FROM attendance_od');
+        const [attendanceResult] = await connection.query('DELETE FROM attendance');
+
+        await connection.commit();
+        res.json({
+            message: 'Attendance reset successfully',
+            deleted: {
+                attendance: attendanceResult.affectedRows,
+                requests: requestResult.affectedRows,
+                od: odResult.affectedRows
+            }
+        });
+    } catch (err) {
+        if (connection) await connection.rollback();
+        console.error(err);
+        res.status(500).json({ error: 'Server error resetting attendance' });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
 app.get('/api/admin/attendance-holidays', async (req, res) => {
     try {
         const [rows] = await pool.query('SELECT * FROM attendance_holidays ORDER BY holiday_date DESC');

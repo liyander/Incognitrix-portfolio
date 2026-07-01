@@ -70,6 +70,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
   const [attendanceStats, setAttendanceStats] = useState([]);
   const [attendanceRequests, setAttendanceRequests] = useState([]);
   const [attendanceHolidays, setAttendanceHolidays] = useState([]);
+  const [isResettingAttendance, setIsResettingAttendance] = useState(false);
   const [selectedIndividual, setSelectedIndividual] = useState(null);
   const [selectedIndividualLoading, setSelectedIndividualLoading] = useState(false);
   const [selectedAttendanceMonth, setSelectedAttendanceMonth] = useState(getCurrentMonthValue());
@@ -544,6 +545,37 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
     } catch (err) {
       console.error(`Failed to ${action} attendance request`, err);
       showAlert(`Failed to ${action} attendance request. Check console.`, 'error');
+    }
+  };
+
+  const handleResetAttendance = async () => {
+    const confirmed = await showConfirm(
+      'Permanently clear all attendance records, attendance requests, and OD entries? User accounts and holiday settings will be preserved.',
+      'Reset Entire Attendance'
+    );
+    if (!confirmed) return;
+
+    setIsResettingAttendance(true);
+    try {
+      const response = await fetch('/api/admin/attendance', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirmation: 'RESET ATTENDANCE' })
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        showAlert(data.error || 'Failed to reset attendance.', 'error');
+        return;
+      }
+
+      await Promise.all([fetchAttendance(), fetchAttendanceRequests()]);
+      showAlert('All attendance records, requests, and OD entries were cleared.');
+    } catch (err) {
+      console.error('Failed to reset attendance', err);
+      showAlert('Failed to reset attendance. Check console.', 'error');
+    } finally {
+      setIsResettingAttendance(false);
     }
   };
 
@@ -1382,9 +1414,20 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
 
           {/* Attendance Stats Overview */}
           <div className="md:col-span-3 bg-surface-container-low p-6 rounded border ghost-border transition-all">
-            <div className="flex items-center gap-4 mb-4 text-primary-container">
-              <span className="material-symbols-outlined text-3xl">rule_folder</span>
-              <h2 className="font-headline text-2xl font-bold tracking-wider">ATTENDANCE OVERVIEW</h2>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+              <div className="flex items-center gap-4 text-primary-container">
+                <span className="material-symbols-outlined text-3xl">rule_folder</span>
+                <h2 className="font-headline text-2xl font-bold tracking-wider">ATTENDANCE OVERVIEW</h2>
+              </div>
+              <button
+                type="button"
+                onClick={handleResetAttendance}
+                disabled={isResettingAttendance}
+                className="self-start sm:self-auto text-error hover:bg-error/10 px-3 py-2 rounded border border-error/40 transition-colors font-mono text-xs font-bold flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <span className="material-symbols-outlined text-base">delete_sweep</span>
+                {isResettingAttendance ? 'RESETTING...' : 'RESET ALL'}
+              </button>
             </div>
             <p className="font-mono text-sm text-on-surface-variant mb-6">Operative check-in status mapping to tracking database. Sundays, first Saturdays, third Saturdays, holidays, and approved OD are handled in the calculation.</p>
 
