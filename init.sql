@@ -132,6 +132,15 @@ CREATE TABLE IF NOT EXISTS attendance_od (
     UNIQUE KEY user_od_date (user_id, od_date)
 );
 
+CREATE TABLE IF NOT EXISTS app_settings (
+    setting_key VARCHAR(100) PRIMARY KEY,
+    setting_value VARCHAR(255) NOT NULL,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+INSERT IGNORE INTO app_settings (setting_key, setting_value)
+VALUES ('attendance_cutoff_time', '08:35');
+
 CREATE TABLE IF NOT EXISTS projects (
     id VARCHAR(255) PRIMARY KEY,
     title VARCHAR(255) NOT NULL,

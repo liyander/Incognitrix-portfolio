@@ -11,6 +11,8 @@ require('dotenv').config();
 const app = express();
 const port = 1337;
 const execFileAsync = promisify(execFile);
+const ATTENDANCE_TIME_ZONE = 'Asia/Kolkata';
+const DEFAULT_ATTENDANCE_CUTOFF = '08:35';
 
 dns.setDefaultResultOrder?.('ipv4first');
 
@@ -323,10 +325,54 @@ async function ensureRuntimeSchema() {
                 UNIQUE KEY user_od_date (user_id, od_date)
             )
         `);
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS app_settings (
+                setting_key VARCHAR(100) PRIMARY KEY,
+                setting_value VARCHAR(255) NOT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        `);
+        await pool.query(
+            `INSERT IGNORE INTO app_settings (setting_key, setting_value)
+             VALUES ('attendance_cutoff_time', ?)`,
+            [DEFAULT_ATTENDANCE_CUTOFF]
+        );
     } catch (err) {
         console.error('Runtime schema migration failed:', err);
     }
 }
+
+const isValidTimeValue = (value) => {
+    const match = /^(\d{2}):(\d{2})$/.exec(String(value || ''));
+    return Boolean(match && Number(match[1]) <= 23 && Number(match[2]) <= 59);
+};
+
+const formatTimeForDisplay = (value) => {
+    const [hour, minute] = value.split(':').map(Number);
+    const period = hour >= 12 ? 'PM' : 'AM';
+    const displayHour = hour % 12 || 12;
+    return `${displayHour}:${String(minute).padStart(2, '0')} ${period}`;
+};
+
+const getAttendanceCutoff = async () => {
+    const [rows] = await pool.query(
+        `SELECT setting_value FROM app_settings
+         WHERE setting_key = 'attendance_cutoff_time' LIMIT 1`
+    );
+    const storedValue = rows[0]?.setting_value;
+    return isValidTimeValue(storedValue) ? storedValue : DEFAULT_ATTENDANCE_CUTOFF;
+};
+
+const getCurrentTimeInAttendanceZone = () => {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+        timeZone: ATTENDANCE_TIME_ZONE,
+        hour: '2-digit',
+        minute: '2-digit',
+        hourCycle: 'h23'
+    }).formatToParts(new Date());
+    const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+    return `${values.hour}:${values.minute}`;
+};
 
 async function submitAttendanceForReview(userId, username) {
     const today = formatDateKey(new Date());
@@ -337,6 +383,18 @@ async function submitAttendanceForReview(userId, username) {
         );
         if (existingAttendance.length > 0) {
             return { success: true, message: "Attendance already approved for today.", username, attendanceRecorded: false, alreadyMarked: true, approvalStatus: 'approved' };
+        }
+
+        const cutoffTime = await getAttendanceCutoff();
+        if (getCurrentTimeInAttendanceZone() > cutoffTime) {
+            return {
+                success: false,
+                message: `Attendance closed at ${formatTimeForDisplay(cutoffTime)}. Contact an admin if an exception is required.`,
+                username,
+                attendanceRecorded: false,
+                attendanceClosed: true,
+                cutoffTime
+            };
         }
 
         await pool.query(
@@ -574,17 +632,15 @@ app.get('/api/individuals/:id', async (req, res) => {
             if (dateKey > statusEnd || requestedMonth > todayKey.slice(0, 7)) {
                 status = 'upcoming';
                 label = 'Upcoming';
+            } else if (presentDates.has(dateKey)) {
+                status = 'present';
+                label = 'Present';
+            } else if (odByDate.has(dateKey)) {
+                status = 'od';
+                label = odByDate.get(dateKey);
             } else if (workingDateSet.has(dateKey)) {
-                if (presentDates.has(dateKey)) {
-                    status = 'present';
-                    label = 'Present';
-                } else if (odByDate.has(dateKey)) {
-                    status = 'od';
-                    label = odByDate.get(dateKey);
-                } else {
-                    status = 'absent';
-                    label = 'Absent';
-                }
+                status = 'absent';
+                label = 'Absent';
             }
 
             return {
@@ -703,6 +759,127 @@ app.patch('/api/individuals/:id/daily-work', async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Server error updating daily work' });
+    }
+});
+
+app.post('/api/admin/individuals/bulk-work', async (req, res) => {
+    const individualIds = [...new Set((Array.isArray(req.body?.individual_ids) ? req.body.individual_ids : [])
+        .map(id => Number(id))
+        .filter(Number.isInteger))];
+    const workDate = String(req.body?.work_date || '');
+    const workText = String(req.body?.work_text || '').trim();
+
+    if (individualIds.length === 0 || !/^\d{4}-\d{2}-\d{2}$/.test(workDate) || !workText) {
+        return res.status(400).json({ error: 'Individuals, work date, and work details are required' });
+    }
+
+    let connection;
+    try {
+        connection = await pool.getConnection();
+        await connection.beginTransaction();
+
+        const placeholders = individualIds.map(() => '?').join(', ');
+        const [individualRows] = await connection.query(
+            `SELECT id FROM individuals WHERE id IN (${placeholders})`,
+            individualIds
+        );
+        if (individualRows.length !== individualIds.length) {
+            await connection.rollback();
+            return res.status(404).json({ error: 'One or more selected individuals were not found' });
+        }
+
+        await connection.query(
+            `UPDATE individuals
+             SET daily_work = CASE WHEN ? = CURRENT_DATE THEN ? ELSE daily_work END
+             WHERE id IN (${placeholders})`,
+            [workDate, workText, ...individualIds]
+        );
+
+        const workLogValues = individualIds.map(() => '(?, ?, ?)').join(', ');
+        const workLogParams = individualIds.flatMap(id => [id, workDate, workText]);
+        await connection.query(
+            `INSERT INTO individual_work_logs (individual_id, work_date, work_text)
+             VALUES ${workLogValues}
+             ON DUPLICATE KEY UPDATE work_text = VALUES(work_text)`,
+            workLogParams
+        );
+
+        await connection.commit();
+        res.json({ message: 'Work assigned successfully', assigned_count: individualIds.length });
+    } catch (err) {
+        if (connection) await connection.rollback();
+        console.error(err);
+        res.status(500).json({ error: 'Server error assigning work' });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
+app.put('/api/admin/individuals/:id/attendance', async (req, res) => {
+    const attendanceDate = String(req.body?.attendance_date || '');
+    const status = String(req.body?.status || '').toLowerCase();
+    const reason = String(req.body?.reason || '').trim();
+    const today = formatDateKey(new Date());
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(attendanceDate) || !['present', 'absent', 'od'].includes(status)) {
+        return res.status(400).json({ error: 'A valid date and attendance status are required' });
+    }
+    if (attendanceDate > today) {
+        return res.status(400).json({ error: 'Future attendance cannot be edited' });
+    }
+
+    let connection;
+    try {
+        connection = await pool.getConnection();
+        await connection.beginTransaction();
+
+        const [individualRows] = await connection.query(
+            'SELECT user_id FROM individuals WHERE id = ? LIMIT 1',
+            [req.params.id]
+        );
+        if (individualRows.length === 0) {
+            await connection.rollback();
+            return res.status(404).json({ error: 'Individual not found' });
+        }
+
+        const userId = individualRows[0].user_id;
+        if (!userId) {
+            await connection.rollback();
+            return res.status(400).json({ error: 'This individual is not linked to an attendance user' });
+        }
+
+        await connection.query(
+            'DELETE FROM attendance_requests WHERE user_id = ? AND attendance_date = ?',
+            [userId, attendanceDate]
+        );
+
+        if (status === 'present') {
+            await connection.query('DELETE FROM attendance_od WHERE user_id = ? AND od_date = ?', [userId, attendanceDate]);
+            await connection.query(
+                `INSERT INTO attendance (user_id, attendance_date) VALUES (?, ?)
+                 ON DUPLICATE KEY UPDATE attendance_date = VALUES(attendance_date)`,
+                [userId, attendanceDate]
+            );
+        } else if (status === 'od') {
+            await connection.query('DELETE FROM attendance WHERE user_id = ? AND attendance_date = ?', [userId, attendanceDate]);
+            await connection.query(
+                `INSERT INTO attendance_od (user_id, od_date, reason) VALUES (?, ?, ?)
+                 ON DUPLICATE KEY UPDATE reason = VALUES(reason)`,
+                [userId, attendanceDate, reason || 'Admin marked OD']
+            );
+        } else {
+            await connection.query('DELETE FROM attendance WHERE user_id = ? AND attendance_date = ?', [userId, attendanceDate]);
+            await connection.query('DELETE FROM attendance_od WHERE user_id = ? AND od_date = ?', [userId, attendanceDate]);
+        }
+
+        await connection.commit();
+        res.json({ message: 'Attendance updated successfully', attendance_date: attendanceDate, status });
+    } catch (err) {
+        if (connection) await connection.rollback();
+        console.error(err);
+        res.status(500).json({ error: 'Server error updating attendance' });
+    } finally {
+        if (connection) connection.release();
     }
 });
 
@@ -1633,6 +1810,36 @@ app.get('/api/admin/attendance', async (req, res) => {
     }
 });
 
+app.get('/api/admin/attendance-settings', async (req, res) => {
+    try {
+        const cutoffTime = await getAttendanceCutoff();
+        res.json({ cutoff_time: cutoffTime, timezone: ATTENDANCE_TIME_ZONE });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error fetching attendance settings' });
+    }
+});
+
+app.put('/api/admin/attendance-settings', async (req, res) => {
+    const cutoffTime = String(req.body?.cutoff_time || '');
+    if (!isValidTimeValue(cutoffTime)) {
+        return res.status(400).json({ error: 'Cutoff time must use HH:MM format' });
+    }
+
+    try {
+        await pool.query(
+            `INSERT INTO app_settings (setting_key, setting_value)
+             VALUES ('attendance_cutoff_time', ?)
+             ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)`,
+            [cutoffTime]
+        );
+        res.json({ message: 'Attendance cutoff updated', cutoff_time: cutoffTime, timezone: ATTENDANCE_TIME_ZONE });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error updating attendance settings' });
+    }
+});
+
 app.delete('/api/admin/attendance', async (req, res) => {
     if (req.body?.confirmation !== 'RESET ATTENDANCE') {
         return res.status(400).json({ error: 'Attendance reset confirmation is required' });
@@ -2062,7 +2269,8 @@ app.post("/api/user/verify-2fa", async (req, res) => {
                 await pool.query("UPDATE users SET has_2fa_enabled = TRUE WHERE id = ?", [user.id]);
             }
             
-            return res.json(await submitAttendanceForReview(user.id, user.username));
+            const attendanceResult = await submitAttendanceForReview(user.id, user.username);
+            return res.status(attendanceResult.success ? 200 : 403).json(attendanceResult);
         } else {
             return res.status(400).json({ success: false, message: "Invalid OTP token" });
         }

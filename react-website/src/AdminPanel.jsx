@@ -71,6 +71,8 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
   const [attendanceRequests, setAttendanceRequests] = useState([]);
   const [attendanceHolidays, setAttendanceHolidays] = useState([]);
   const [isResettingAttendance, setIsResettingAttendance] = useState(false);
+  const [attendanceCutoff, setAttendanceCutoff] = useState('08:35');
+  const [isSavingAttendanceCutoff, setIsSavingAttendanceCutoff] = useState(false);
   const [selectedIndividual, setSelectedIndividual] = useState(null);
   const [selectedIndividualLoading, setSelectedIndividualLoading] = useState(false);
   const [selectedAttendanceMonth, setSelectedAttendanceMonth] = useState(getCurrentMonthValue());
@@ -103,6 +105,11 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
   const [attendanceExportWeek, setAttendanceExportWeek] = useState(getCurrentWeekValue());
   const [attendanceRange, setAttendanceRange] = useState({ from: getMonthStartValue(), to: getCurrentDateValue() });
   const [individualSearchQuery, setIndividualSearchQuery] = useState('');
+  const [selectedIndividualIds, setSelectedIndividualIds] = useState([]);
+  const [bulkWorkForm, setBulkWorkForm] = useState({ work_date: getCurrentDateValue(), work_text: '' });
+  const [isAssigningBulkWork, setIsAssigningBulkWork] = useState(false);
+  const [attendanceEdit, setAttendanceEdit] = useState(null);
+  const [isSavingAttendanceEdit, setIsSavingAttendanceEdit] = useState(false);
 
   const showAlert = (message, tone = 'info') => {
     setDialogState({ type: 'alert', tone, title: tone === 'error' ? 'Action Failed' : 'System Notice', message });
@@ -170,6 +177,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
     fetchAttendance();
     fetchAttendanceRequests();
     fetchAttendanceHolidays();
+    fetchAttendanceSettings();
   }, []);
 
   const fetchUpcomingCtfs = async () => {
@@ -197,6 +205,16 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
       setAttendanceStats(uniqueStats);
     } catch (err) {
       console.error('Failed to fetch attendance', err);
+    }
+  };
+
+  const fetchAttendanceSettings = async () => {
+    try {
+      const response = await fetch('/api/admin/attendance-settings');
+      const data = await response.json();
+      if (response.ok && data.cutoff_time) setAttendanceCutoff(data.cutoff_time);
+    } catch (err) {
+      console.error('Failed to fetch attendance settings', err);
     }
   };
 
@@ -583,6 +601,30 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
     }
   };
 
+  const handleSaveAttendanceCutoff = async (e) => {
+    e.preventDefault();
+    setIsSavingAttendanceCutoff(true);
+    try {
+      const response = await fetch('/api/admin/attendance-settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cutoff_time: attendanceCutoff })
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        showAlert(data.error || 'Failed to update attendance cutoff.', 'error');
+        return;
+      }
+      setAttendanceCutoff(data.cutoff_time);
+      showAlert(`Attendance cutoff updated to ${data.cutoff_time} (${data.timezone}).`);
+    } catch (err) {
+      console.error('Failed to update attendance cutoff', err);
+      showAlert('Failed to update attendance cutoff. Check console.', 'error');
+    } finally {
+      setIsSavingAttendanceCutoff(false);
+    }
+  };
+
   const handleDownloadWeeklyAttendance = () => {
     const week = attendanceExportWeek || getCurrentWeekValue();
     window.open(`/api/admin/attendance/weekly-export?week=${encodeURIComponent(week)}`, '_blank');
@@ -960,6 +1002,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
   };
 
   const handleAttendanceMonthChange = (month) => {
+    setAttendanceEdit(null);
     setSelectedAttendanceMonth(month);
     if (selectedIndividual?.id) {
       handleViewIndividual(selectedIndividual, month);
@@ -1039,6 +1082,101 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
     } catch (err) {
       console.error('Failed to update daily work', err);
       showAlert('Failed to update daily work. Check console.');
+    }
+  };
+
+  const handleIndividualSelectionToggle = (individualId) => {
+    setSelectedIndividualIds(prev => (
+      prev.includes(individualId)
+        ? prev.filter(id => id !== individualId)
+        : [...prev, individualId]
+    ));
+  };
+
+  const handleSelectVisibleIndividuals = () => {
+    const visibleIds = getFilteredIndividuals().map(ind => ind.id);
+    const allVisibleSelected = visibleIds.length > 0 && visibleIds.every(id => selectedIndividualIds.includes(id));
+    setSelectedIndividualIds(prev => allVisibleSelected
+      ? prev.filter(id => !visibleIds.includes(id))
+      : [...new Set([...prev, ...visibleIds])]
+    );
+  };
+
+  const handleBulkWorkSubmit = async (e) => {
+    e.preventDefault();
+    if (selectedIndividualIds.length === 0) {
+      showAlert('Select at least one individual.', 'error');
+      return;
+    }
+
+    setIsAssigningBulkWork(true);
+    try {
+      const response = await fetch('/api/admin/individuals/bulk-work', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          individual_ids: selectedIndividualIds,
+          work_date: bulkWorkForm.work_date,
+          work_text: bulkWorkForm.work_text
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        showAlert(data.error || 'Failed to assign work.', 'error');
+        return;
+      }
+
+      await fetchIndividuals();
+      setBulkWorkForm(prev => ({ ...prev, work_text: '' }));
+      setSelectedIndividualIds([]);
+      showAlert(`Work assigned to ${data.assigned_count} individual${data.assigned_count === 1 ? '' : 's'}.`);
+    } catch (err) {
+      console.error('Failed to assign bulk work', err);
+      showAlert('Failed to assign work. Check console.', 'error');
+    } finally {
+      setIsAssigningBulkWork(false);
+    }
+  };
+
+  const handleStartAttendanceEdit = (day) => {
+    if (selectedIndividual?.attendance_calendar_source === 'no_user_match') {
+      showAlert('Link this individual to an operative user before editing attendance.', 'error');
+      return;
+    }
+    if (day.date > getCurrentDateValue()) return;
+    setAttendanceEdit({
+      attendance_date: day.date,
+      status: ['present', 'absent', 'od'].includes(day.status) ? day.status : 'absent',
+      reason: day.status === 'od' ? day.label : ''
+    });
+  };
+
+  const handleAttendanceEditSubmit = async (e) => {
+    e.preventDefault();
+    if (!selectedIndividual?.id || !attendanceEdit) return;
+
+    setIsSavingAttendanceEdit(true);
+    try {
+      const response = await fetch(`/api/admin/individuals/${selectedIndividual.id}/attendance`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(attendanceEdit)
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        showAlert(data.error || 'Failed to update attendance.', 'error');
+        return;
+      }
+
+      const individualToRefresh = selectedIndividual;
+      setAttendanceEdit(null);
+      await handleViewIndividual(individualToRefresh, selectedAttendanceMonth);
+      showAlert(`Attendance updated for ${data.attendance_date}.`);
+    } catch (err) {
+      console.error('Failed to update attendance', err);
+      showAlert('Failed to update attendance. Check console.', 'error');
+    } finally {
+      setIsSavingAttendanceEdit(false);
     }
   };
 
@@ -1434,6 +1572,27 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
               </button>
             </div>
             <p className="font-mono text-sm text-on-surface-variant mb-6">Operative check-in status mapping to tracking database. Sundays, first Saturdays, third Saturdays, holidays, and approved OD are handled in the calculation.</p>
+
+            <form onSubmit={handleSaveAttendanceCutoff} className="mb-6 bg-background border border-outline/20 rounded p-4 flex flex-col sm:flex-row sm:items-end gap-3">
+              <div className="flex-1">
+                <label className="text-outline block mb-1 font-mono text-xs uppercase">Attendance Cutoff (IST)</label>
+                <input
+                  type="time"
+                  value={attendanceCutoff}
+                  onChange={(e) => setAttendanceCutoff(e.target.value)}
+                  required
+                  className="w-full sm:w-44 bg-surface-container-low border border-outline/30 rounded p-2 text-on-surface focus:border-primary focus:outline-none font-mono text-sm"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={isSavingAttendanceCutoff}
+                className="bg-primary/20 text-primary border border-primary/40 rounded px-4 py-2 font-mono text-xs font-bold hover:bg-primary/30 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                <span className="material-symbols-outlined text-sm">schedule</span>
+                {isSavingAttendanceCutoff ? 'SAVING...' : 'SAVE CUTOFF'}
+              </button>
+            </form>
 
             <div className="mb-6 bg-background border border-outline/20 rounded p-4">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
@@ -2098,25 +2257,34 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
       {/* INDIVIDUALS LIST VIEW */}
       {activeAdminView === 'individuals-list' && (
         <div className="flex flex-col gap-6">
-          <div className="flex justify-between items-center bg-surface-container/50 p-6 rounded border ghost-border">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-surface-container/50 p-6 rounded border ghost-border">
             <div>
               <h2 className="font-headline text-2xl font-bold text-on-surface">Individuals / Operatives Database</h2>
               <p className="font-mono text-xs text-outline mt-1">Listing all internal personnel</p>
             </div>
-            <button 
-              onClick={() => {
-                setIndividualFormData({
-                  name: '', role: '', team_id: '', department: '', year_of_study: '', studying_year: '', daily_work: '', image: '',
-                  achievements: [], certificates: [], research_work: []
-                });
-                setEditingId(null);
-                setActiveAdminView('add-individual');
-              }}
-              className="px-6 py-3 bg-primary-container text-on-primary-fixed shadow-[0_0_10px_rgba(0,245,255,0.3)] font-headline font-bold rounded flex items-center gap-2 hover:shadow-[0_0_20px_rgba(0,245,255,0.6)] transition-all"
-            >
-              <span className="material-symbols-outlined text-sm">add</span>
-              NEW INDIVIDUAL
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => setActiveAdminView('lab-plan')}
+                className="px-4 py-3 text-primary border border-primary/30 font-headline font-bold rounded flex items-center gap-2 hover:bg-primary/10 transition-colors"
+              >
+                <span className="material-symbols-outlined text-sm">event_note</span>
+                CREATE SCHEDULE
+              </button>
+              <button
+                onClick={() => {
+                  setIndividualFormData({
+                    name: '', role: '', team_id: '', department: '', year_of_study: '', studying_year: '', daily_work: '', image: '',
+                    achievements: [], certificates: [], research_work: []
+                  });
+                  setEditingId(null);
+                  setActiveAdminView('add-individual');
+                }}
+                className="px-6 py-3 bg-primary-container text-on-primary-fixed shadow-[0_0_10px_rgba(0,245,255,0.3)] font-headline font-bold rounded flex items-center gap-2 hover:shadow-[0_0_20px_rgba(0,245,255,0.6)] transition-all"
+              >
+                <span className="material-symbols-outlined text-sm">add</span>
+                NEW INDIVIDUAL
+              </button>
+            </div>
           </div>
 
           <div className="bg-background border border-outline/20 rounded p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -2137,6 +2305,47 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
             </div>
           </div>
 
+          <form onSubmit={handleBulkWorkSubmit} className="bg-background border border-outline/20 rounded p-4 grid grid-cols-1 lg:grid-cols-12 gap-3 font-mono text-xs">
+            <div className="lg:col-span-2 flex items-end">
+              <button
+                type="button"
+                onClick={handleSelectVisibleIndividuals}
+                className="w-full text-outline border border-outline/30 rounded px-3 py-2.5 hover:text-primary hover:border-primary/40 transition-colors"
+              >
+                {getFilteredIndividuals().length > 0 && getFilteredIndividuals().every(ind => selectedIndividualIds.includes(ind.id)) ? 'CLEAR VISIBLE' : 'SELECT VISIBLE'}
+              </button>
+            </div>
+            <label className="lg:col-span-2">
+              <span className="text-outline block mb-1 uppercase">Work Date</span>
+              <input
+                type="date"
+                value={bulkWorkForm.work_date}
+                onChange={(e) => setBulkWorkForm({ ...bulkWorkForm, work_date: e.target.value })}
+                required
+                className="w-full bg-surface-container-low border border-outline/30 rounded p-2.5 text-on-surface focus:border-primary focus:outline-none"
+              />
+            </label>
+            <label className="lg:col-span-6">
+              <span className="text-outline block mb-1 uppercase">Overall Work Assignment</span>
+              <input
+                value={bulkWorkForm.work_text}
+                onChange={(e) => setBulkWorkForm({ ...bulkWorkForm, work_text: e.target.value })}
+                required
+                className="w-full bg-surface-container-low border border-outline/30 rounded p-2.5 text-on-surface focus:border-primary focus:outline-none"
+                placeholder="Assign the same work to selected individuals"
+              />
+            </label>
+            <div className="lg:col-span-2 flex items-end">
+              <button
+                type="submit"
+                disabled={isAssigningBulkWork || selectedIndividualIds.length === 0}
+                className="w-full bg-primary/20 text-primary border border-primary/40 rounded px-3 py-2.5 font-bold hover:bg-primary/30 transition-colors disabled:opacity-40"
+              >
+                {isAssigningBulkWork ? 'ASSIGNING...' : `ASSIGN (${selectedIndividualIds.length})`}
+              </button>
+            </div>
+          </form>
+
           <div className="grid grid-cols-1 gap-4">
             {individuals.length === 0 ? (
               <div className="bg-surface-container-low p-8 text-center rounded border border-outline/20">
@@ -2154,12 +2363,22 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                   className="bg-background border border-outline/20 p-5 rounded flex flex-col gap-4 hover:border-primary/50 transition-colors cursor-pointer"
                 >
                   <div className="flex lg:items-start justify-between flex-col lg:flex-row gap-4">
-                  <div className="flex flex-col gap-1 min-w-0">
+                  <div className="flex items-start gap-3 min-w-0">
+                    <input
+                      type="checkbox"
+                      checked={selectedIndividualIds.includes(ind.id)}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={() => handleIndividualSelectionToggle(ind.id)}
+                      aria-label={`Select ${ind.name}`}
+                      className="mt-1 w-4 h-4 accent-primary shrink-0"
+                    />
+                    <div className="flex flex-col gap-1 min-w-0">
                     <div className="font-mono text-xs font-bold text-primary-container bg-primary-container/10 w-fit px-2 py-0.5 rounded tracking-widest">{ind.role || 'OPERATIVE'} / {ind.department || 'NO DEPT'}</div>
                     <div className="font-headline text-xl font-bold">{ind.name}</div>
                     <div className="font-mono text-xs text-outline">Team: {ind.team_name || 'UNASSIGNED'}</div>
                     <div className="font-mono text-xs text-on-surface-variant mt-2 max-w-3xl">
                       <span className="text-primary uppercase">Current Day Work:</span> {getCurrentDayWork(ind) || 'No work update recorded for today.'}
+                    </div>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 mt-4 lg:mt-0 sm:gap-6">
@@ -2404,6 +2623,44 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                   </div>
 
                   <div className="p-5">
+                    {attendanceEdit && (
+                      <form onSubmit={handleAttendanceEditSubmit} className="mb-5 bg-surface-container-low border border-primary/20 rounded p-4 grid grid-cols-1 md:grid-cols-[1fr_1fr_2fr_auto] gap-3 items-end">
+                        <div>
+                          <label className="text-outline block mb-1 font-mono text-[10px] uppercase">Date</label>
+                          <input value={attendanceEdit.attendance_date} readOnly className="w-full bg-background border border-outline/20 rounded p-2 text-on-surface font-mono text-xs" />
+                        </div>
+                        <div>
+                          <label className="text-outline block mb-1 font-mono text-[10px] uppercase">Status</label>
+                          <select
+                            value={attendanceEdit.status}
+                            onChange={(e) => setAttendanceEdit({ ...attendanceEdit, status: e.target.value })}
+                            className="w-full bg-background border border-outline/30 rounded p-2 text-on-surface focus:border-primary focus:outline-none font-mono text-xs"
+                          >
+                            <option value="present">Present</option>
+                            <option value="absent">Absent</option>
+                            <option value="od">OD</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-outline block mb-1 font-mono text-[10px] uppercase">OD Reason</label>
+                          <input
+                            value={attendanceEdit.reason}
+                            onChange={(e) => setAttendanceEdit({ ...attendanceEdit, reason: e.target.value })}
+                            disabled={attendanceEdit.status !== 'od'}
+                            className="w-full bg-background border border-outline/30 rounded p-2 text-on-surface focus:border-primary focus:outline-none font-mono text-xs disabled:opacity-40"
+                            placeholder="Optional reason"
+                          />
+                        </div>
+                        <div className="flex gap-2">
+                          <button type="button" onClick={() => setAttendanceEdit(null)} className="p-2 text-outline border border-outline/30 rounded hover:text-on-surface" title="Cancel attendance edit">
+                            <span className="material-symbols-outlined text-base">close</span>
+                          </button>
+                          <button type="submit" disabled={isSavingAttendanceEdit} className="p-2 text-primary border border-primary/40 rounded hover:bg-primary/10 disabled:opacity-50" title="Save attendance">
+                            <span className="material-symbols-outlined text-base">save</span>
+                          </button>
+                        </div>
+                      </form>
+                    )}
                     <div className="grid grid-cols-7 gap-2 mb-2 font-mono text-[10px] text-outline text-center uppercase">
                       {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
                         <div key={day}>{day}</div>
@@ -2418,10 +2675,13 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                           <div key={`blank-${idx}`} className="aspect-square rounded border border-transparent"></div>
                         ))}
                         {attendanceCalendar.map(day => (
-                          <div
+                          <button
+                            type="button"
                             key={day.date}
                             title={`${day.date} - ${day.label}`}
-                            className={`aspect-square min-h-14 rounded border p-2 flex flex-col justify-between transition-colors ${getCalendarStatusClass(day.status)}`}
+                            onClick={() => handleStartAttendanceEdit(day)}
+                            disabled={day.date > getCurrentDateValue() || selectedIndividual.attendance_calendar_source === 'no_user_match'}
+                            className={`aspect-square min-h-14 rounded border p-2 flex flex-col justify-between text-left transition-colors enabled:hover:ring-1 enabled:hover:ring-primary/60 disabled:cursor-default ${getCalendarStatusClass(day.status)}`}
                           >
                             <div className="flex items-center justify-between gap-1">
                               <span className="font-mono text-sm font-bold">{String(Number(day.date.slice(8, 10)))}</span>
@@ -2430,7 +2690,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                             <div className="font-mono text-[9px] uppercase truncate">
                               {day.status === 'present' ? 'Present' : day.status === 'absent' ? 'Absent' : day.status === 'od' ? 'OD' : day.status === 'upcoming' ? 'Next' : 'Off'}
                             </div>
-                          </div>
+                          </button>
                         ))}
                       </div>
                     )}
