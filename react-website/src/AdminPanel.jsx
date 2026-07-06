@@ -12,6 +12,17 @@ const UPCOMING_CTFS_API_URL = '/api/upcoming-ctfs';
 const CTF_PARTICIPATIONS_API_URL = '/api/ctf-participations';
 const LAB_PLANS_API_URL = '/api/admin/lab-plans';
 
+const readJsonResponse = async (response) => {
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) return null;
+  try {
+    return await response.json();
+  } catch (err) {
+    console.error('Failed to parse JSON response', err);
+    return null;
+  }
+};
+
 const getCurrentWeekValue = () => {
   const current = new Date();
   const target = new Date(Date.UTC(current.getFullYear(), current.getMonth(), current.getDate()));
@@ -211,8 +222,12 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
   const fetchAttendanceSettings = async () => {
     try {
       const response = await fetch('/api/admin/attendance-settings');
-      const data = await response.json();
-      if (response.ok && data.cutoff_time) setAttendanceCutoff(data.cutoff_time);
+      const data = await readJsonResponse(response);
+      if (response.ok && data?.cutoff_time) {
+        setAttendanceCutoff(data.cutoff_time);
+      } else if (!response.ok && response.status !== 404) {
+        console.error('Failed to fetch attendance settings', data?.error || `HTTP ${response.status}`);
+      }
     } catch (err) {
       console.error('Failed to fetch attendance settings', err);
     }
@@ -610,9 +625,16 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cutoff_time: attendanceCutoff })
       });
-      const data = await response.json();
+      const data = await readJsonResponse(response);
       if (!response.ok) {
-        showAlert(data.error || 'Failed to update attendance cutoff.', 'error');
+        const fallbackMessage = response.status === 404
+          ? 'Attendance settings are unavailable on the running backend. Restart the backend server and try again.'
+          : `Failed to update attendance cutoff (HTTP ${response.status}).`;
+        showAlert(data?.error || fallbackMessage, 'error');
+        return;
+      }
+      if (!data?.cutoff_time) {
+        showAlert('The backend returned an invalid attendance settings response.', 'error');
         return;
       }
       setAttendanceCutoff(data.cutoff_time);
