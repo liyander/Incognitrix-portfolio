@@ -20,6 +20,7 @@ function AdminLogin({ onLogin }) {
       });
       const data = await response.json();
       if (data.success) {
+        sessionStorage.setItem('adminToken', data.token);
         onLogin(data.username);
       } else {
         setError(data.message || 'Login failed');

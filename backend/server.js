@@ -6,6 +6,7 @@ const path = require('path');
 const dns = require('dns');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
+const crypto = require('crypto');
 require('dotenv').config();
 
 const app = express();
@@ -13,6 +14,22 @@ const port = 1337;
 const execFileAsync = promisify(execFile);
 const ATTENDANCE_TIME_ZONE = 'Asia/Kolkata';
 const DEFAULT_ATTENDANCE_CUTOFF = '08:35';
+const ADMIN_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
+const adminSessions = new Map();
+
+const requireAdmin = (req, res, next) => {
+    const authorization = String(req.headers.authorization || '');
+    const token = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
+    const session = adminSessions.get(token);
+
+    if (!session || session.expiresAt <= Date.now()) {
+        if (token) adminSessions.delete(token);
+        return res.status(401).json({ error: 'Admin authentication required' });
+    }
+
+    req.admin = session;
+    next();
+};
 
 dns.setDefaultResultOrder?.('ipv4first');
 
@@ -363,15 +380,21 @@ const getAttendanceCutoff = async () => {
     return isValidTimeValue(storedValue) ? storedValue : DEFAULT_ATTENDANCE_CUTOFF;
 };
 
-const getCurrentTimeInAttendanceZone = () => {
+const getCurrentTimeInAttendanceZoneSeconds = () => {
     const parts = new Intl.DateTimeFormat('en-GB', {
         timeZone: ATTENDANCE_TIME_ZONE,
         hour: '2-digit',
         minute: '2-digit',
+        second: '2-digit',
         hourCycle: 'h23'
     }).formatToParts(new Date());
     const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
-    return `${values.hour}:${values.minute}`;
+    return (Number(values.hour) * 3600) + (Number(values.minute) * 60) + Number(values.second);
+};
+
+const getCutoffTimeSeconds = (cutoffTime) => {
+    const [hour, minute] = cutoffTime.split(':').map(Number);
+    return (hour * 3600) + (minute * 60);
 };
 
 async function submitAttendanceForReview(userId, username) {
@@ -386,7 +409,7 @@ async function submitAttendanceForReview(userId, username) {
         }
 
         const cutoffTime = await getAttendanceCutoff();
-        if (getCurrentTimeInAttendanceZone() > cutoffTime) {
+        if (getCurrentTimeInAttendanceZoneSeconds() > getCutoffTimeSeconds(cutoffTime)) {
             return {
                 success: false,
                 message: `Attendance closed at ${formatTimeForDisplay(cutoffTime)}. Contact an admin if an exception is required.`,
@@ -815,7 +838,7 @@ app.post('/api/admin/individuals/bulk-work', async (req, res) => {
     }
 });
 
-app.put('/api/admin/individuals/:id/attendance', async (req, res) => {
+app.put('/api/admin/individuals/:id/attendance', requireAdmin, async (req, res) => {
     const attendanceDate = String(req.body?.attendance_date || '');
     const status = String(req.body?.status || '').toLowerCase();
     const reason = String(req.body?.reason || '').trim();
@@ -1465,7 +1488,9 @@ app.post('/api/admin/login', async (req, res) => {
         const admin = rows[0];
         const match = await bcrypt.compare(password, admin.password);
         if (match) {
-            res.json({ success: true, username: admin.username });
+            const token = crypto.randomBytes(32).toString('hex');
+            adminSessions.set(token, { username: admin.username, expiresAt: Date.now() + ADMIN_SESSION_TTL_MS });
+            res.json({ success: true, username: admin.username, token });
         } else {
             res.status(401).json({ success: false, message: 'Invalid credentials' });
         }
@@ -1820,7 +1845,7 @@ app.get('/api/admin/attendance-settings', async (req, res) => {
     }
 });
 
-app.put('/api/admin/attendance-settings', async (req, res) => {
+app.put('/api/admin/attendance-settings', requireAdmin, async (req, res) => {
     const cutoffTime = String(req.body?.cutoff_time || '');
     if (!isValidTimeValue(cutoffTime)) {
         return res.status(400).json({ error: 'Cutoff time must use HH:MM format' });
@@ -1840,7 +1865,7 @@ app.put('/api/admin/attendance-settings', async (req, res) => {
     }
 });
 
-app.delete('/api/admin/attendance', async (req, res) => {
+app.delete('/api/admin/attendance', requireAdmin, async (req, res) => {
     if (req.body?.confirmation !== 'RESET ATTENDANCE') {
         return res.status(400).json({ error: 'Attendance reset confirmation is required' });
     }
@@ -1882,7 +1907,7 @@ app.get('/api/admin/attendance-holidays', async (req, res) => {
     }
 });
 
-app.post('/api/admin/attendance-holidays', async (req, res) => {
+app.post('/api/admin/attendance-holidays', requireAdmin, async (req, res) => {
     const { holiday_date, title, holiday_type } = req.body;
     if (!holiday_date || !title) {
         return res.status(400).json({ error: 'Holiday date and title are required' });
@@ -1902,7 +1927,7 @@ app.post('/api/admin/attendance-holidays', async (req, res) => {
     }
 });
 
-app.delete('/api/admin/attendance-holidays/:id', async (req, res) => {
+app.delete('/api/admin/attendance-holidays/:id', requireAdmin, async (req, res) => {
     try {
         const [result] = await pool.query('DELETE FROM attendance_holidays WHERE id = ?', [req.params.id]);
         if (result.affectedRows === 0) return res.status(404).json({ error: 'Holiday not found' });
@@ -1913,7 +1938,7 @@ app.delete('/api/admin/attendance-holidays/:id', async (req, res) => {
     }
 });
 
-app.post('/api/admin/attendance-od', async (req, res) => {
+app.post('/api/admin/attendance-od', requireAdmin, async (req, res) => {
     const { user_id, od_date, reason } = req.body;
     if (!user_id || !od_date) {
         return res.status(400).json({ error: 'Operative and OD date are required' });
@@ -1950,7 +1975,7 @@ app.get('/api/admin/attendance-requests', async (req, res) => {
     }
 });
 
-app.post('/api/admin/attendance-requests/:id/approve', async (req, res) => {
+app.post('/api/admin/attendance-requests/:id/approve', requireAdmin, async (req, res) => {
     const reviewer = req.body.reviewed_by || req.body.admin_username || 'admin';
     try {
         const [rows] = await pool.query('SELECT * FROM attendance_requests WHERE id = ? LIMIT 1', [req.params.id]);
@@ -1976,7 +2001,7 @@ app.post('/api/admin/attendance-requests/:id/approve', async (req, res) => {
     }
 });
 
-app.post('/api/admin/attendance-requests/:id/reject', async (req, res) => {
+app.post('/api/admin/attendance-requests/:id/reject', requireAdmin, async (req, res) => {
     const reviewer = req.body.reviewed_by || req.body.admin_username || 'admin';
     const note = req.body.review_note || 'Rejected by admin';
     try {

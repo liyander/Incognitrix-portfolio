@@ -1,5 +1,5 @@
 /* Designed and engineered by liyander Rishwanth (CyberGhost05) */
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import AdminPanel from './AdminPanel';
 import Teams from './Teams';
 import CVEs from './CVEs';
@@ -25,7 +25,6 @@ function App() {
   const mainRef = useRef(null);
 
   const [isAutoMode, setIsAutoMode] = useState(false);
-  const [autoState, setAutoState] = useState('list');
   const [autoIndex, setAutoIndex] = useState(0);
   
   // New Global State Toggle for Data Source
@@ -33,7 +32,7 @@ function App() {
 
   // Fetch products from the MySQL backend on load
   useEffect(() => {
-    if (useDatabase) {
+    if (useDatabase && !isAutoMode) {
       fetch('/api/projects')
         .then(res => res.json())
         .then(data => {
@@ -52,7 +51,7 @@ function App() {
        // Optional: Add logic to fetch individuals strictly from /api/sheets-dashboard if useDatabase is false
        // and translate them. Currently Individuals.jsx does this internally.
     }
-  }, [view, useDatabase]); // Refresh when view changes (e.g. coming back from admin)
+  }, [view, useDatabase, isAutoMode]);
 
   // Use DB products if they exist, otherwise fallback to an empty UI state or standard array
   const defaultProjects = [
@@ -109,7 +108,7 @@ function App() {
     return () => clearInterval(interval);
   }, [projects, isAutoMode]);
 
-  const getAutoTourSteps = () => {
+  const autoTourSteps = useMemo(() => {
     const productSteps = [
       { view: 'portal', selectedProject: null },
       ...projects.map((project, index) => ({ view: 'portal', selectedProject: project, heroIndex: index }))
@@ -129,66 +128,81 @@ function App() {
       { view: 'upcoming-ctfs' },
       { view: 'attendance' }
     ].filter(step => step.view !== 'individual-profile' || step.selectedIndividualId);
-  };
+  }, [dbProjects, individuals]);
 
   const scrollAutoPage = () => {
     const container = mainRef.current;
-    if (!container) return [];
+    if (!container) return () => {};
 
-    const handles = [];
-    const slowScrollTo = (targetTop) => {
-      const interval = setInterval(() => {
-        const currentTop = container.scrollTop;
-        const distance = targetTop - currentTop;
-        if (Math.abs(distance) < 6) {
-          container.scrollTop = targetTop;
-          clearInterval(interval);
-          return;
+    let animationFrame = null;
+    const animateScroll = (targetTop, duration) => {
+      if (animationFrame !== null) cancelAnimationFrame(animationFrame);
+      const startTop = container.scrollTop;
+      const distance = targetTop - startTop;
+      const startTime = performance.now();
+
+      const tick = (currentTime) => {
+        const progress = Math.min((currentTime - startTime) / duration, 1);
+        const easedProgress = progress < 0.5
+          ? 2 * progress * progress
+          : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+        container.scrollTop = startTop + (distance * easedProgress);
+        if (progress < 1) {
+          animationFrame = requestAnimationFrame(tick);
+        } else {
+          animationFrame = null;
         }
-        container.scrollTop = currentTop + (distance * 0.025);
-      }, 16);
-      handles.push(interval);
+      };
+
+      animationFrame = requestAnimationFrame(tick);
     };
 
     container.scrollTo({ top: 0, behavior: 'auto' });
     const scrollDown = setTimeout(() => {
-      slowScrollTo(Math.max(container.scrollHeight - container.clientHeight, 0));
-    }, 1500);
+      animateScroll(Math.max(container.scrollHeight - container.clientHeight, 0), 5200);
+    }, 700);
     const scrollUp = setTimeout(() => {
-      slowScrollTo(0);
+      animateScroll(0, 3200);
     }, 9000);
-    handles.push(scrollDown, scrollUp);
-    return handles;
+
+    return () => {
+      clearTimeout(scrollDown);
+      clearTimeout(scrollUp);
+      if (animationFrame !== null) cancelAnimationFrame(animationFrame);
+    };
   };
 
   // Auto Mode Engine
   useEffect(() => {
     if (!isAutoMode) return;
 
-    const steps = getAutoTourSteps();
-    if (steps.length === 0) return;
+    if (autoTourSteps.length === 0) return;
 
-    const step = steps[autoIndex % steps.length];
-    setView(step.view);
-    setSelectedProject(step.selectedProject || null);
-    setSelectedIndividualId(step.selectedIndividualId || null);
-    if (typeof step.heroIndex === 'number') {
-      setActiveHeroIndex(step.heroIndex);
-    }
+    const step = autoTourSteps[autoIndex % autoTourSteps.length];
+    const stepTimer = setTimeout(() => {
+      setView(step.view);
+      setSelectedProject(step.selectedProject || null);
+      setSelectedIndividualId(step.selectedIndividualId || null);
+      if (typeof step.heroIndex === 'number') {
+        setActiveHeroIndex(step.heroIndex);
+      }
+    }, 0);
 
-    const scrollTimers = scrollAutoPage();
+    let stopScrolling = () => {};
+    const scrollStartTimer = setTimeout(() => {
+      stopScrolling = scrollAutoPage();
+    }, 150);
     const nextTimer = setTimeout(() => {
       setAutoIndex((prev) => prev + 1);
     }, 15000);
 
     return () => {
-      scrollTimers.forEach(timer => {
-        clearTimeout(timer);
-        clearInterval(timer);
-      });
+      clearTimeout(stepTimer);
+      clearTimeout(scrollStartTimer);
       clearTimeout(nextTimer);
+      stopScrolling();
     };
-  }, [isAutoMode, autoIndex, projects, individuals]);
+  }, [isAutoMode, autoIndex, autoTourSteps]);
 
   const activeHeroProject = projects[activeHeroIndex] || null;
   const defaultImage = "https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=2072&auto=format&fit=crop";
@@ -550,7 +564,10 @@ function App() {
       <main ref={mainRef} className="flex-1 w-full overflow-y-auto">
         {view === 'admin' ? (
           adminUser ? (
-            <AdminPanel onBack={() => setView('portal')} adminUser={adminUser} onLogout={() => setAdminUser(null)} />
+            <AdminPanel onBack={() => setView('portal')} adminUser={adminUser} onLogout={() => {
+              sessionStorage.removeItem('adminToken');
+              setAdminUser(null);
+            }} />
           ) : (
             <AdminLogin onLogin={(user) => setAdminUser(user)} />
           )
@@ -579,7 +596,6 @@ function App() {
         <button 
           onClick={() => {
             setIsAutoMode(!isAutoMode);
-            setAutoState('list');
             setAutoIndex(0);
             setView('dashboard');
             setSelectedProject(null);

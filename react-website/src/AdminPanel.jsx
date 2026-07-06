@@ -23,6 +23,11 @@ const readJsonResponse = async (response) => {
   }
 };
 
+const getAdminHeaders = (includeJson = false) => ({
+  ...(includeJson ? { 'Content-Type': 'application/json' } : {}),
+  Authorization: `Bearer ${sessionStorage.getItem('adminToken') || ''}`
+});
+
 const getCurrentWeekValue = () => {
   const current = new Date();
   const target = new Date(Date.UTC(current.getFullYear(), current.getMonth(), current.getDate()));
@@ -492,7 +497,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
     try {
       const response = await fetch('/api/admin/attendance-holidays', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAdminHeaders(true),
         body: JSON.stringify(holidayFormData)
       });
 
@@ -515,7 +520,10 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
     if (!(await showConfirm('Delete this holiday from attendance calendar?'))) return;
 
     try {
-      const response = await fetch(`/api/admin/attendance-holidays/${holidayId}`, { method: 'DELETE' });
+      const response = await fetch(`/api/admin/attendance-holidays/${holidayId}`, {
+        method: 'DELETE',
+        headers: getAdminHeaders()
+      });
       if (!response.ok) {
         showAlert('Failed to delete holiday.');
         return;
@@ -534,7 +542,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
     try {
       const response = await fetch('/api/admin/attendance-od', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAdminHeaders(true),
         body: JSON.stringify(odFormData)
       });
 
@@ -563,7 +571,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
     try {
       const response = await fetch(`/api/admin/attendance-requests/${requestId}/${action}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAdminHeaders(true),
         body: JSON.stringify({ reviewed_by: adminUser?.username || adminUser || 'admin' })
       });
 
@@ -592,7 +600,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
     try {
       const response = await fetch('/api/admin/attendance', {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAdminHeaders(true),
         body: JSON.stringify({ confirmation: 'RESET ATTENDANCE' })
       });
       const isJsonResponse = response.headers.get('content-type')?.includes('application/json');
@@ -622,7 +630,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
     try {
       const response = await fetch('/api/admin/attendance-settings', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAdminHeaders(true),
         body: JSON.stringify({ cutoff_time: attendanceCutoff })
       });
       const data = await readJsonResponse(response);
@@ -1181,7 +1189,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
     try {
       const response = await fetch(`/api/admin/individuals/${selectedIndividual.id}/attendance`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAdminHeaders(true),
         body: JSON.stringify(attendanceEdit)
       });
       const data = await response.json();
