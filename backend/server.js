@@ -1939,22 +1939,45 @@ app.delete('/api/admin/attendance-holidays/:id', requireAdmin, async (req, res) 
 });
 
 app.post('/api/admin/attendance-od', requireAdmin, async (req, res) => {
-    const { user_id, od_date, reason } = req.body;
-    if (!user_id || !od_date) {
-        return res.status(400).json({ error: 'Operative and OD date are required' });
+    const { user_id, user_ids, od_date, reason } = req.body;
+    const selectedUserIds = [...new Set((Array.isArray(user_ids) ? user_ids : [user_id])
+        .map(id => String(id || '').trim())
+        .filter(Boolean))];
+    if (selectedUserIds.length === 0 || !od_date) {
+        return res.status(400).json({ error: 'At least one operative and an OD date are required' });
     }
 
+    let connection;
     try {
-        await pool.query(
-            `INSERT INTO attendance_od (user_id, od_date, reason)
-             VALUES (?, ?, ?)
-             ON DUPLICATE KEY UPDATE reason = VALUES(reason)`,
-            [user_id, od_date, reason || 'On duty']
+        connection = await pool.getConnection();
+        await connection.beginTransaction();
+
+        const placeholders = selectedUserIds.map(() => '?').join(', ');
+        const [users] = await connection.query(
+            `SELECT id FROM users WHERE id IN (${placeholders})`,
+            selectedUserIds
         );
-        res.status(201).json({ message: 'OD saved successfully' });
+        if (users.length !== selectedUserIds.length) {
+            await connection.rollback();
+            return res.status(404).json({ error: 'One or more selected operatives were not found' });
+        }
+
+        const valuePlaceholders = selectedUserIds.map(() => '(?, ?, ?)').join(', ');
+        const values = selectedUserIds.flatMap(id => [id, od_date, reason || 'On duty']);
+        await connection.query(
+            `INSERT INTO attendance_od (user_id, od_date, reason)
+             VALUES ${valuePlaceholders}
+             ON DUPLICATE KEY UPDATE reason = VALUES(reason)`,
+            values
+        );
+        await connection.commit();
+        res.status(201).json({ message: 'OD saved successfully', saved_count: selectedUserIds.length });
     } catch (err) {
+        if (connection) await connection.rollback();
         console.error(err);
         res.status(500).json({ error: 'Server error saving OD' });
+    } finally {
+        if (connection) connection.release();
     }
 });
 

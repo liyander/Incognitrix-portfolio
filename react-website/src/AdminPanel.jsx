@@ -97,7 +97,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
 
   // Form States
   const [formData, setFormData] = useState({
-    id: '', title: '', status: 'ONGOING', priority: 'Red team', 
+    id: '', title: '', status: 'ONGOING', priority: '',
     description: '', shortDesc: '', image: '', stack: '', 
     beneficiaries: '', team: '', usage_desc: '', timeline: '', operatives: ''
   });
@@ -117,7 +117,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
   const [editingCtfTeamId, setEditingCtfTeamId] = useState(null);
   const [labPlanFormData, setLabPlanFormData] = useState({ plan_date: getCurrentDateValue(), target_week: getCurrentWeekValue(), daily_schedule: '', weekly_target: '' });
   const [holidayFormData, setHolidayFormData] = useState({ holiday_date: '', title: '', holiday_type: 'Institute Holiday' });
-  const [odFormData, setOdFormData] = useState({ user_id: '', od_date: '', reason: '' });
+  const [odFormData, setOdFormData] = useState({ user_ids: [], od_date: '', reason: '' });
   const [attendanceExportWeek, setAttendanceExportWeek] = useState(getCurrentWeekValue());
   const [attendanceRange, setAttendanceRange] = useState({ from: getMonthStartValue(), to: getCurrentDateValue() });
   const [individualSearchQuery, setIndividualSearchQuery] = useState('');
@@ -491,6 +491,21 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
     setOdFormData({ ...odFormData, [e.target.name]: e.target.value });
   };
 
+  const handleOdOperativeToggle = (userId) => {
+    setOdFormData(prev => ({
+      ...prev,
+      user_ids: prev.user_ids.includes(userId)
+        ? prev.user_ids.filter(id => id !== userId)
+        : [...prev.user_ids, userId]
+    }));
+  };
+
+  const handleToggleAllOdOperatives = () => {
+    const allUserIds = attendanceStats.map(stat => String(stat.id));
+    const allSelected = allUserIds.length > 0 && allUserIds.every(id => odFormData.user_ids.includes(id));
+    setOdFormData(prev => ({ ...prev, user_ids: allSelected ? [] : allUserIds }));
+  };
+
   const handleHolidaySubmit = async (e) => {
     e.preventDefault();
 
@@ -551,9 +566,10 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
         return;
       }
 
-      setOdFormData({ user_id: '', od_date: '', reason: '' });
+      const data = await response.json();
+      setOdFormData({ user_ids: [], od_date: '', reason: '' });
       fetchAttendance();
-      showAlert('OD saved. It will not be considered absent.');
+      showAlert(`OD saved for ${data.saved_count || odFormData.user_ids.length} operative${(data.saved_count || odFormData.user_ids.length) === 1 ? '' : 's'}.`);
     } catch (err) {
       console.error('Failed to save OD', err);
       showAlert('Failed to save OD. Check console.');
@@ -882,7 +898,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
       id: proj.id || "",
       title: proj.title || "",
       status: proj.status || "ONGOING",
-      priority: proj.priority || "Red team",
+      priority: proj.priority || "",
       description: proj.description || "",
       shortDesc: proj.shortDesc || "",
       image: proj.image || "",
@@ -924,7 +940,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
       fetchProjects(); // Refresh list
       showAlert(`Project ${editingId ? 'Updated' : 'Added'} Successfully!`);
       setFormData({
-        id: '', title: '', status: 'ONGOING', priority: 'Red team', 
+        id: '', title: '', status: 'ONGOING', priority: '',
         description: '', shortDesc: '', image: '', stack: '', 
         beneficiaries: '', team: '', usage_desc: '', timeline: '', operatives: ''
       });
@@ -1754,14 +1770,29 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
               </form>
 
               <form onSubmit={handleOdSubmit} className="bg-background border border-outline/20 rounded p-4 grid grid-cols-1 md:grid-cols-4 gap-3 font-mono text-xs">
-                <div>
-                  <label className="text-outline block mb-1">Operative</label>
-                  <select name="user_id" value={odFormData.user_id} onChange={handleOdChange} required className="w-full bg-surface-container-low border border-outline/30 rounded p-2 text-on-surface focus:border-primary focus:outline-none">
-                    <option value="">Select</option>
-                    {attendanceStats.map(stat => (
-                      <option key={stat.id} value={stat.id}>{stat.username}</option>
-                    ))}
-                  </select>
+                <div className="md:col-span-4">
+                  <div className="flex items-center justify-between gap-3 mb-2">
+                    <label className="text-outline">Operatives ({odFormData.user_ids.length} selected)</label>
+                    <button type="button" onClick={handleToggleAllOdOperatives} className="text-primary hover:text-on-surface transition-colors">
+                      {attendanceStats.length > 0 && attendanceStats.every(stat => odFormData.user_ids.includes(String(stat.id))) ? 'CLEAR ALL' : 'SELECT ALL'}
+                    </button>
+                  </div>
+                  <div className="max-h-40 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-2 border border-outline/20 rounded p-2 bg-surface-container-low">
+                    {attendanceStats.map(stat => {
+                      const userId = String(stat.id);
+                      return (
+                        <label key={stat.id} className="flex items-center gap-2 p-2 rounded border border-outline/10 hover:border-primary/30 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={odFormData.user_ids.includes(userId)}
+                            onChange={() => handleOdOperativeToggle(userId)}
+                            className="w-4 h-4 accent-primary"
+                          />
+                          <span className="text-on-surface uppercase truncate">{stat.username}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
                 </div>
                 <div>
                   <label className="text-outline block mb-1">OD Date</label>
@@ -1772,7 +1803,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                   <input name="reason" value={odFormData.reason} onChange={handleOdChange} className="w-full bg-surface-container-low border border-outline/30 rounded p-2 text-on-surface focus:border-primary focus:outline-none" placeholder="On duty reason" />
                 </div>
                 <div className="flex items-end">
-                  <button type="submit" className="w-full bg-secondary/20 text-secondary border border-secondary/40 rounded p-2 font-bold hover:bg-secondary/30 transition-colors">MARK OD</button>
+                  <button type="submit" disabled={odFormData.user_ids.length === 0} className="w-full bg-secondary/20 text-secondary border border-secondary/40 rounded p-2 font-bold hover:bg-secondary/30 transition-colors disabled:opacity-40">MARK OD</button>
                 </div>
               </form>
             </div>
@@ -1989,7 +2020,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
             <button 
               onClick={() => {
                 setFormData({
-                  id: '', title: '', status: 'ONGOING', priority: 'Red team', 
+                  id: '', title: '', status: 'ONGOING', priority: '',
                   description: '', shortDesc: '', image: '', stack: '', 
                   beneficiaries: '', team: '', usage_desc: '', timeline: '', operatives: ''
                 });
@@ -2065,25 +2096,13 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
               </div>
             </div>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <div>
               <div>
                 <label className="text-outline block mb-1">Status</label>
                 <select name="status" onChange={handleChange} value={formData.status} className="w-full bg-background border border-outline/30 rounded p-2.5 text-on-surface focus:border-primary focus:outline-none transition-colors">
                   <option value="ONGOING">Ongoing</option>
                   <option value="COMPLETED">Completed</option>
                   <option value="FUTURE DEVELOPMENT">Future Development</option>
-                </select>
-              </div>
-              <div>
-                <label className="text-outline block mb-1">Priority (Team)</label>
-                <select name="priority" onChange={handleChange} value={formData.priority} className="w-full bg-background border border-outline/30 rounded p-2.5 text-on-surface focus:border-primary focus:outline-none transition-colors">
-                  <option value="Red team">Red team</option>
-                  <option value="Blue team">Blue team</option>
-                  <option value="cve">CVE</option>
-                  <option value="project team">Project team</option>
-                  <option value="VAPT">VAPT</option>
-                  <option value="network">Network</option>
-                  <option value="research team">Research team</option>
                 </select>
               </div>
             </div>
