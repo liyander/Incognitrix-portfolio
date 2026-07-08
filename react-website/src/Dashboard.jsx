@@ -9,6 +9,7 @@ function Dashboard({ useDatabase }) {
   const [teams, setTeams] = useState([]);
   const [topContributors, setTopContributors] = useState([]);
   const [activeCtfParticipations, setActiveCtfParticipations] = useState([]);
+  const [dashboardHighlights, setDashboardHighlights] = useState([]);
   const [currentLabPlan, setCurrentLabPlan] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -20,14 +21,15 @@ function Dashboard({ useDatabase }) {
       try {
         setLoading(true);
         if (useDatabase) {
-           const [indRes, projRes, achRes, cveRes, teamRes, activeCtfRes, labPlanRes] = await Promise.all([
+           const [indRes, projRes, achRes, cveRes, teamRes, activeCtfRes, labPlanRes, highlightRes] = await Promise.all([
              apiFetch('/api/individuals'),
              apiFetch('/api/projects'),
              apiFetch('/api/achievements'),
              apiFetch('/api/cves'),
              apiFetch('/api/teams'),
              apiFetch('/api/ctf-participations/active'),
-             apiFetch('/api/lab-plan')
+             apiFetch('/api/lab-plan'),
+             apiFetch('/api/dashboard-highlights')
            ]);
            if (indRes.ok && projRes.ok && achRes.ok && cveRes.ok && teamRes.ok) {
               const inds = await indRes.json();
@@ -37,6 +39,7 @@ function Dashboard({ useDatabase }) {
               const teamRows = await teamRes.json();
               const activeCtfRows = activeCtfRes.ok ? await activeCtfRes.json() : [];
               const labPlan = labPlanRes.ok ? await labPlanRes.json() : null;
+              const highlightRows = highlightRes.ok ? await highlightRes.json() : [];
 
               let totalCert = 0;
               const safeInds = Array.isArray(inds) ? inds : [];
@@ -75,6 +78,7 @@ function Dashboard({ useDatabase }) {
               setRecentCves([...safeCves].sort((a, b) => String(a.cve_number || '').localeCompare(String(b.cve_number || ''))).slice(0, 6));
               setProjects(safeProjects);
               setActiveCtfParticipations(Array.isArray(activeCtfRows) ? activeCtfRows : []);
+              setDashboardHighlights(Array.isArray(highlightRows) ? highlightRows : []);
               setCurrentLabPlan(labPlan);
               setTeams([...safeTeams].sort((a, b) => {
                 if (a.name === 'Red Team') return -1;
@@ -169,6 +173,7 @@ function Dashboard({ useDatabase }) {
         setTeams([]);
         setTopContributors([]);
         setActiveCtfParticipations([]);
+        setDashboardHighlights([]);
         setCurrentLabPlan(null);
 
       } catch (err) {
@@ -182,13 +187,46 @@ function Dashboard({ useDatabase }) {
     fetchData();
   }, [useDatabase]);
 
-  const rangeProject = projects.find(project => project.title === 'Incognitrix Range');
-  const portfolioProject = projects.find(project => project.title === 'Incognitrix Portfolio');
-  const latestAchievement = recentAchievements[0];
-  const leadFinder = topContributors[0];
-  const projectReadiness = projects.length ? Math.round((projects.filter(project => String(project.status || '').toLowerCase().includes('ongoing') || String(project.status || '').toLowerCase().includes('active')).length / projects.length) * 100) : 0;
   const scheduleLines = String(currentLabPlan?.daily_schedule || '').split('\n').map(line => line.trim()).filter(Boolean);
   const targetLines = String(currentLabPlan?.weekly_target || '').split('\n').map(line => line.trim()).filter(Boolean);
+  const recentActivityCards = [
+    ...dashboardHighlights.map(item => ({
+      type: item.highlight_type || 'info',
+      title: item.title,
+      summary: item.summary,
+      date: item.event_date,
+      participants: Array.isArray(item.participants) ? item.participants : [],
+      link: item.link
+    })),
+    ...recentAchievements.slice(0, 3).map(item => ({
+      type: 'achievement',
+      title: item.title || 'Achievement',
+      summary: item.description || item.future_scope || '',
+      date: item.date,
+      participants: (() => {
+        try { return typeof item.contributors === 'string' ? JSON.parse(item.contributors) : item.contributors || []; } catch(e) { return []; }
+      })(),
+      link: Array.isArray(item.reference_link) ? item.reference_link[0] : item.reference_link
+    })),
+    ...activeCtfParticipations.slice(0, 3).map(item => ({
+      type: 'participation',
+      title: item.ctf_title || 'CTF Participation',
+      summary: item.notes || item.status || 'Participation active',
+      date: item.start_time,
+      participants: (item.teams || []).flatMap(team => Array.isArray(team.members) ? team.members : []),
+      link: ''
+    }))
+  ].filter(item => item.title).slice(0, 3);
+  const activityIcon = {
+    achievement: 'emoji_events',
+    participation: 'flag',
+    info: 'campaign'
+  };
+  const activityTone = {
+    achievement: 'text-amber-300',
+    participation: 'text-primary-container',
+    info: 'text-emerald-400'
+  };
 
   if (loading) {
     return (
@@ -221,19 +259,32 @@ function Dashboard({ useDatabase }) {
               Live operational view across products, teams, CVE research, achievements, and personnel activity.
             </p>
           </div>
-          <div className="lg:col-span-5 grid grid-cols-3 gap-3">
-            <div className="bg-background/60 border border-outline/20 rounded p-4">
-              <div className="font-mono text-[10px] text-outline uppercase mb-1">Readiness</div>
-              <div className="font-headline text-2xl text-emerald-400 font-bold">{projectReadiness}%</div>
-            </div>
-            <div className="bg-background/60 border border-outline/20 rounded p-4">
-              <div className="font-mono text-[10px] text-outline uppercase mb-1">Lead CVE</div>
-              <div className="font-headline text-lg text-primary font-bold truncate">{leadFinder?.name || 'N/A'}</div>
-            </div>
-            <div className="bg-background/60 border border-outline/20 rounded p-4">
-              <div className="font-mono text-[10px] text-outline uppercase mb-1">Latest</div>
-              <div className="font-headline text-lg text-secondary font-bold truncate">{latestAchievement?.title || 'N/A'}</div>
-            </div>
+          <div className="lg:col-span-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {recentActivityCards.length > 0 ? recentActivityCards.map((item, index) => (
+              <a
+                key={`${item.type}-${item.title}-${index}`}
+                href={item.link || undefined}
+                target={item.link ? '_blank' : undefined}
+                rel={item.link ? 'noreferrer' : undefined}
+                className="bg-background/60 border border-outline/20 rounded p-4 min-h-32 hover:border-primary/40 transition-colors"
+              >
+                <div className="flex items-center justify-between gap-2 mb-3">
+                  <div className="font-mono text-[10px] text-outline uppercase">{item.type}</div>
+                  <span className={`material-symbols-outlined text-base ${activityTone[item.type] || activityTone.info}`}>{activityIcon[item.type] || activityIcon.info}</span>
+                </div>
+                <div className="font-headline text-base text-on-surface font-bold line-clamp-2">{item.title}</div>
+                {item.summary && <div className="font-mono text-[10px] text-on-surface-variant mt-2 line-clamp-2">{item.summary}</div>}
+                <div className="font-mono text-[10px] text-outline mt-3 truncate">
+                  {(item.participants || []).slice(0, 2).join(', ') || (item.date ? String(item.date).slice(0, 10) : 'LAB INFO')}
+                </div>
+              </a>
+            )) : (
+              <div className="sm:col-span-3 bg-background/60 border border-outline/20 rounded p-4">
+                <div className="font-mono text-[10px] text-outline uppercase mb-1">Recent Activity</div>
+                <div className="font-headline text-lg text-on-surface font-bold">No dashboard highlights yet</div>
+                <div className="font-mono text-[10px] text-outline mt-2">Add achievements, participation, or info from the admin panel.</div>
+              </div>
+            )}
           </div>
         </div>
       </header>

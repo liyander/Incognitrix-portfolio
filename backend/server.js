@@ -132,6 +132,13 @@ const parseLooseDateKey = (value) => {
     return null;
 };
 
+const maxDateKey = (...values) => values
+    .filter(Boolean)
+    .map(toDateKey)
+    .filter(Boolean)
+    .sort()
+    .pop() || null;
+
 // Database Connection
 const pool = mysql.createPool({
     host: process.env.DB_HOST || 'localhost',
@@ -200,7 +207,8 @@ async function ensureRuntimeSchema() {
                 username VARCHAR(255) NOT NULL UNIQUE,
                 password VARCHAR(255) NOT NULL,
                 twofa_secret VARCHAR(255),
-                has_2fa_enabled BOOLEAN DEFAULT FALSE
+                has_2fa_enabled BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         `);
 
@@ -223,6 +231,9 @@ async function ensureRuntimeSchema() {
         if (!userColumns.some(col => col.Field === 'has_2fa_enabled')) {
             await pool.query('ALTER TABLE users ADD COLUMN has_2fa_enabled BOOLEAN DEFAULT FALSE');
         }
+        if (!userColumns.some(col => col.Field === 'created_at')) {
+            await pool.query('ALTER TABLE users ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
+        }
 
         await pool.query(`
             CREATE TABLE IF NOT EXISTS individuals (
@@ -238,7 +249,8 @@ async function ensureRuntimeSchema() {
                 achievements JSON,
                 certificates JSON,
                 research_work JSON,
-                image TEXT
+                image TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         `);
 
@@ -256,6 +268,9 @@ async function ensureRuntimeSchema() {
                 SET studying_year = CAST(REGEXP_SUBSTR(year_of_study, '[0-9]+') AS UNSIGNED)
                 WHERE studying_year IS NULL AND year_of_study REGEXP '[0-9]+'
             `);
+        }
+        if (!individualColumns.some(col => col.Field === 'created_at')) {
+            await pool.query('ALTER TABLE individuals ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
         }
         await syncIndividualUserMappings();
         await pool.query(`
@@ -321,6 +336,20 @@ async function ensureRuntimeSchema() {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 INDEX lab_plans_week_idx (target_week)
+            )
+        `);
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS dashboard_highlights (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                highlight_type VARCHAR(50) DEFAULT 'info',
+                title VARCHAR(255) NOT NULL,
+                summary TEXT,
+                event_date DATE NULL,
+                link TEXT,
+                participants JSON,
+                is_active BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             )
         `);
         await pool.query(`
@@ -726,6 +755,7 @@ app.post('/api/individuals', async (req, res) => {
                 [result.insertId, daily_work]
             );
         }
+        await syncIndividualUserMappings();
         res.status(201).json({ id: result.insertId, message: 'Individual created successfully' });
     } catch (err) {
         console.error(err);
@@ -757,6 +787,7 @@ app.put('/api/individuals/:id', async (req, res) => {
                 [req.params.id, daily_work]
             );
         }
+        await syncIndividualUserMappings();
         res.json({ message: 'Individual updated successfully' });
     } catch (err) {
         console.error(err);
@@ -1368,6 +1399,112 @@ app.delete('/api/admin/lab-plans/:id', async (req, res) => {
     }
 });
 
+app.get('/api/dashboard-highlights', async (req, res) => {
+    try {
+        const [rows] = await pool.query(`
+            SELECT *
+            FROM dashboard_highlights
+            WHERE is_active = TRUE
+            ORDER BY COALESCE(event_date, DATE(created_at)) DESC, id DESC
+            LIMIT 12
+        `);
+        res.json(rows.map(row => ({
+            ...row,
+            participants: parseJsonArray(row.participants)
+        })));
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error fetching dashboard highlights' });
+    }
+});
+
+app.get('/api/admin/dashboard-highlights', async (req, res) => {
+    try {
+        const [rows] = await pool.query(`
+            SELECT *
+            FROM dashboard_highlights
+            ORDER BY COALESCE(event_date, DATE(created_at)) DESC, id DESC
+            LIMIT 50
+        `);
+        res.json(rows.map(row => ({
+            ...row,
+            participants: parseJsonArray(row.participants)
+        })));
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error fetching dashboard highlights' });
+    }
+});
+
+app.post('/api/admin/dashboard-highlights', async (req, res) => {
+    const { highlight_type, title, summary, event_date, link, participants, is_active } = req.body;
+    if (!title) {
+        return res.status(400).json({ error: 'Title is required' });
+    }
+
+    try {
+        const [result] = await pool.query(
+            `INSERT INTO dashboard_highlights
+                (highlight_type, title, summary, event_date, link, participants, is_active)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [
+                highlight_type || 'info',
+                title,
+                summary || '',
+                event_date || null,
+                link || '',
+                JSON.stringify(Array.isArray(participants) ? participants.filter(Boolean) : []),
+                is_active === false ? 0 : 1
+            ]
+        );
+        res.status(201).json({ id: result.insertId, message: 'Dashboard highlight saved successfully' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error saving dashboard highlight' });
+    }
+});
+
+app.put('/api/admin/dashboard-highlights/:id', async (req, res) => {
+    const { highlight_type, title, summary, event_date, link, participants, is_active } = req.body;
+    if (!title) {
+        return res.status(400).json({ error: 'Title is required' });
+    }
+
+    try {
+        const [result] = await pool.query(
+            `UPDATE dashboard_highlights
+             SET highlight_type = ?, title = ?, summary = ?, event_date = ?, link = ?, participants = ?, is_active = ?
+             WHERE id = ?`,
+            [
+                highlight_type || 'info',
+                title,
+                summary || '',
+                event_date || null,
+                link || '',
+                JSON.stringify(Array.isArray(participants) ? participants.filter(Boolean) : []),
+                is_active === false ? 0 : 1,
+                req.params.id
+            ]
+        );
+        if (result.affectedRows === 0) return res.status(404).json({ error: 'Dashboard highlight not found' });
+        res.json({ message: 'Dashboard highlight updated successfully' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error updating dashboard highlight' });
+    }
+});
+
+app.delete('/api/admin/dashboard-highlights/:id', async (req, res) => {
+    try {
+        const [result] = await pool.query('DELETE FROM dashboard_highlights WHERE id = ?', [req.params.id]);
+        if (result.affectedRows === 0) return res.status(404).json({ error: 'Dashboard highlight not found' });
+        res.json({ message: 'Dashboard highlight removed successfully' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error removing dashboard highlight' });
+    }
+});
+
 app.get('/api/cves', async (req, res) => {
     try {
         const [rows] = await pool.query('SELECT * FROM cves');
@@ -1691,8 +1828,10 @@ const buildAttendanceStatusCsv = async (startKey, endKey, percentageHeader = 'At
             i.department,
             i.year_of_study,
             i.studying_year,
+            i.created_at as individual_created_at,
             u.id as user_id,
-            u.username
+            u.username,
+            u.created_at as user_created_at
         FROM individuals i
         LEFT JOIN users u ON u.id = i.user_id
         ORDER BY COALESCE(i.studying_year, 999), i.name
@@ -1735,16 +1874,19 @@ const buildAttendanceStatusCsv = async (startKey, endKey, percentageHeader = 'At
 
     const rows = people.map(person => {
         const userKey = person.user_id ? String(person.user_id) : null;
+        const personStartKey = maxDateKey(startKey, person.individual_created_at, person.user_created_at) || startKey;
         const attendedDates = userKey ? (attendanceByUser.get(userKey) || new Set()) : new Set();
         const odDates = userKey ? (odByUser.get(userKey) || new Set()) : new Set();
 
         const statusCells = workingDateKeys.map(dateKey => {
+            if (dateKey < personStartKey) return 'Not Joined';
             if (attendedDates.has(dateKey)) return 'Present';
             if (odDates.has(dateKey)) return 'OD';
             return 'Absent';
         });
         const effectivePresent = statusCells.filter(status => status === 'Present' || status === 'OD').length;
-        const percentage = workingDateKeys.length === 0 ? 100 : Math.round((effectivePresent / workingDateKeys.length) * 100);
+        const countedDays = statusCells.filter(status => status !== 'Not Joined').length;
+        const percentage = countedDays === 0 ? 100 : Math.round((effectivePresent / countedDays) * 100);
 
         return [
             person.studying_year || '',
@@ -1774,11 +1916,13 @@ app.get('/api/admin/attendance', async (req, res) => {
             SELECT
                 u.id,
                 u.username,
-                MIN(i.studying_year) as studying_year
+                u.created_at as user_created_at,
+                MIN(i.studying_year) as studying_year,
+                MIN(i.created_at) as individual_created_at
             FROM users u
             LEFT JOIN individuals i
                 ON i.user_id = u.id
-            GROUP BY u.id, u.username
+            GROUP BY u.id, u.username, u.created_at
             ORDER BY COALESCE(MIN(i.studying_year), 999), u.id ASC
         `);
         const [attendanceRows] = await pool.query(
@@ -1810,12 +1954,15 @@ app.get('/api/admin/attendance', async (req, res) => {
 
         const attendanceData = users.map(user => {
             const userKey = String(user.id);
+            const userStartKey = maxDateKey(minDateKey, user.individual_created_at, user.user_created_at) || minDateKey;
+            const userWorkingDays = workingDateKeys.filter(dateKey => dateKey >= userStartKey);
+            const userWorkingDateSet = new Set(userWorkingDays);
             const attendedDates = attendanceByUser.get(userKey) || new Set();
             const odDates = odByUser.get(userKey) || new Set();
-            const excusedOdDays = [...odDates].filter(dateKey => !attendedDates.has(dateKey)).length;
-            const attendedDays = attendedDates.size;
+            const attendedDays = [...attendedDates].filter(dateKey => userWorkingDateSet.has(dateKey)).length;
+            const excusedOdDays = [...odDates].filter(dateKey => userWorkingDateSet.has(dateKey) && !attendedDates.has(dateKey)).length;
             const effectivePresent = attendedDays + excusedOdDays;
-            const percentage = totalWorkingDays === 0 ? 100 : Math.round((effectivePresent / totalWorkingDays) * 100);
+            const percentage = userWorkingDays.length === 0 ? 100 : Math.round((effectivePresent / userWorkingDays.length) * 100);
 
             return {
                 id: user.id,
@@ -1823,7 +1970,8 @@ app.get('/api/admin/attendance', async (req, res) => {
                 studying_year: user.studying_year,
                 attended_days: attendedDays,
                 od_days: excusedOdDays,
-                working_days: totalWorkingDays,
+                working_days: userWorkingDays.length,
+                attendance_start_date: userStartKey,
                 percentage
             };
         });

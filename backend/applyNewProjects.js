@@ -6,7 +6,7 @@ const projects = [
     id: 'PROJ-6',
     title: 'Project Romulus - AI-Powered Cyber Breach Simulation Platform',
     status: 'Planned / In Development',
-    priority: 'High Priority',
+    priority: 'High Priority', 
     team: 'AI, Cybersecurity, SOC, Threat Intelligence Team',
     shortDesc: 'An AI-powered cyber breach simulation platform that converts real-world attack reports into practical investigation scenarios for corporate security teams.',
     description: `Project Romulus is designed to help organizations prepare their employees and security teams for real-world cyber incidents. When a new cyberattack, breach, malware campaign, or threat actor activity is reported, the admin can feed URLs of reports, articles, or threat intelligence sources into the platform.

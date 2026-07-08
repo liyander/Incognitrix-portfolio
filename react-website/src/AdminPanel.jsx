@@ -11,6 +11,7 @@ const ACHIEVEMENTS_API_URL = '/api/achievements';
 const UPCOMING_CTFS_API_URL = '/api/upcoming-ctfs';
 const CTF_PARTICIPATIONS_API_URL = '/api/ctf-participations';
 const LAB_PLANS_API_URL = '/api/admin/lab-plans';
+const DASHBOARD_HIGHLIGHTS_API_URL = '/api/admin/dashboard-highlights';
 
 const readJsonResponse = async (response) => {
   const contentType = response.headers.get('content-type') || '';
@@ -65,9 +66,12 @@ const MONTH_OPTIONS = [
   ['12', 'December']
 ];
 
-const getYearOptions = () => {
+const getYearOptions = (selectedYear) => {
   const currentYear = new Date().getFullYear();
-  return Array.from({ length: 6 }, (_, index) => currentYear - 4 + index);
+  const years = new Set(Array.from({ length: 12 }, (_, index) => currentYear - 8 + index));
+  const parsedSelectedYear = Number(selectedYear);
+  if (Number.isInteger(parsedSelectedYear)) years.add(parsedSelectedYear);
+  return [...years].sort((a, b) => b - a);
 };
 
 function AdminPanel({ onBack, adminUser, onLogout }) {
@@ -83,6 +87,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
   const [upcomingCtfs, setUpcomingCtfs] = useState([]);
   const [ctfParticipations, setCtfParticipations] = useState([]);
   const [labPlans, setLabPlans] = useState([]);
+  const [dashboardHighlights, setDashboardHighlights] = useState([]);
   const [attendanceStats, setAttendanceStats] = useState([]);
   const [attendanceRequests, setAttendanceRequests] = useState([]);
   const [attendanceHolidays, setAttendanceHolidays] = useState([]);
@@ -116,6 +121,15 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
   const [ctfTeamFormData, setCtfTeamFormData] = useState({ participation_id: '', team_name: '', position: '', score: '', notes: '', members: [] });
   const [editingCtfTeamId, setEditingCtfTeamId] = useState(null);
   const [labPlanFormData, setLabPlanFormData] = useState({ plan_date: getCurrentDateValue(), target_week: getCurrentWeekValue(), daily_schedule: '', weekly_target: '' });
+  const [dashboardHighlightFormData, setDashboardHighlightFormData] = useState({
+    highlight_type: 'achievement',
+    title: '',
+    summary: '',
+    event_date: getCurrentDateValue(),
+    link: '',
+    participants: [],
+    is_active: true
+  });
   const [holidayFormData, setHolidayFormData] = useState({ holiday_date: '', title: '', holiday_type: 'Institute Holiday' });
   const [odFormData, setOdFormData] = useState({ user_ids: [], od_date: '', reason: '' });
   const [attendanceExportWeek, setAttendanceExportWeek] = useState(getCurrentWeekValue());
@@ -190,6 +204,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
     fetchUpcomingCtfs();
     fetchCtfParticipations();
     fetchLabPlans();
+    fetchDashboardHighlights();
     fetchAttendance();
     fetchAttendanceRequests();
     fetchAttendanceHolidays();
@@ -255,6 +270,20 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
       setLabPlans(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error('Failed to fetch lab plans', err);
+    }
+  };
+
+  const fetchDashboardHighlights = async () => {
+    try {
+      const response = await fetch(DASHBOARD_HIGHLIGHTS_API_URL);
+      const data = await readJsonResponse(response);
+      if (response.ok) {
+        setDashboardHighlights(Array.isArray(data) ? data : []);
+      } else if (response.status !== 404) {
+        console.error('Failed to fetch dashboard highlights', data?.error || `HTTP ${response.status}`);
+      }
+    } catch (err) {
+      console.error('Failed to fetch dashboard highlights', err);
     }
   };
 
@@ -457,6 +486,26 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
 
   const handleLabPlanChange = (e) => {
     setLabPlanFormData({ ...labPlanFormData, [e.target.name]: e.target.value });
+  };
+
+  const handleDashboardHighlightChange = (e) => {
+    const { name, value, type, checked } = e.target;
+    setDashboardHighlightFormData({
+      ...dashboardHighlightFormData,
+      [name]: type === 'checkbox' ? checked : value
+    });
+  };
+
+  const handleDashboardHighlightParticipantToggle = (individual) => {
+    const currentParticipants = Array.isArray(dashboardHighlightFormData.participants) ? dashboardHighlightFormData.participants : [];
+    const participantName = individual.name;
+    const exists = currentParticipants.includes(participantName);
+    setDashboardHighlightFormData({
+      ...dashboardHighlightFormData,
+      participants: exists
+        ? currentParticipants.filter(name => name !== participantName)
+        : [...currentParticipants, participantName]
+    });
   };
 
   const selectCtfForParticipation = (ctf) => {
@@ -889,6 +938,77 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
     } catch (err) {
       console.error('Failed to delete lab plan', err);
       showAlert('Failed to delete lab schedule. Check console.', 'error');
+    }
+  };
+
+  const resetDashboardHighlightForm = () => {
+    setDashboardHighlightFormData({
+      highlight_type: 'achievement',
+      title: '',
+      summary: '',
+      event_date: getCurrentDateValue(),
+      link: '',
+      participants: [],
+      is_active: true
+    });
+    setEditingId(null);
+  };
+
+  const handleDashboardHighlightSubmit = async (e) => {
+    e.preventDefault();
+    if (!dashboardHighlightFormData.title.trim()) {
+      showAlert('Highlight title is required.', 'error');
+      return;
+    }
+
+    try {
+      const response = await fetch(editingId ? `${DASHBOARD_HIGHLIGHTS_API_URL}/${editingId}` : DASHBOARD_HIGHLIGHTS_API_URL, {
+        method: editingId ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(dashboardHighlightFormData)
+      });
+      const data = await readJsonResponse(response);
+      if (!response.ok) {
+        showAlert(data?.error || 'Failed to save dashboard highlight.', 'error');
+        return;
+      }
+
+      await fetchDashboardHighlights();
+      resetDashboardHighlightForm();
+      showAlert('Dashboard highlight saved.');
+    } catch (err) {
+      console.error('Failed to save dashboard highlight', err);
+      showAlert('Failed to save dashboard highlight. Check console.', 'error');
+    }
+  };
+
+  const handleEditDashboardHighlight = (highlight) => {
+    setDashboardHighlightFormData({
+      highlight_type: highlight.highlight_type || 'info',
+      title: highlight.title || '',
+      summary: highlight.summary || '',
+      event_date: highlight.event_date ? String(highlight.event_date).slice(0, 10) : '',
+      link: highlight.link || '',
+      participants: Array.isArray(highlight.participants) ? highlight.participants : [],
+      is_active: highlight.is_active !== false && highlight.is_active !== 0
+    });
+    setEditingId(highlight.id);
+    setActiveAdminView('dashboard-highlights');
+  };
+
+  const handleDeleteDashboardHighlight = async (highlight) => {
+    if (!(await showConfirm(`Delete dashboard highlight "${highlight.title}"?`))) return;
+    try {
+      const response = await fetch(`${DASHBOARD_HIGHLIGHTS_API_URL}/${highlight.id}`, { method: 'DELETE' });
+      if (!response.ok) {
+        showAlert('Failed to delete dashboard highlight.', 'error');
+        return;
+      }
+      await fetchDashboardHighlights();
+      if (editingId === highlight.id) resetDashboardHighlightForm();
+    } catch (err) {
+      console.error('Failed to delete dashboard highlight', err);
+      showAlert('Failed to delete dashboard highlight. Check console.', 'error');
     }
   };
 
@@ -1482,6 +1602,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
         {activeAdminView === 'add-project' && "Initialize a new project operation into the master database."}
         {activeAdminView === 'individual-detail' && "Inspect individual details, current work, and stored daily work timeline."}
         {activeAdminView === 'lab-plan' && "Set the daily schedule and weekly target visible to normal users."}
+        {activeAdminView === 'dashboard-highlights' && "Publish recent achievements, participation, and info cards to the command dashboard."}
       </p>
 
       {/* DASHBOARD VIEW */}
@@ -1596,6 +1717,25 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
             <p className="font-mono text-sm text-on-surface-variant line-clamp-2">Set daily schedule and weekly target visible on the user dashboard.</p>
             <div className="mt-6 flex justify-between items-center text-outline text-[10px] font-mono">
               <span>{labPlans?.length || 0} Saved</span>
+              <span className="group-hover:text-primary transition-colors">ACCESS &rarr;</span>
+            </div>
+          </div>
+
+          {/* Dashboard Highlights Card */}
+          <div
+            onClick={() => {
+              resetDashboardHighlightForm();
+              setActiveAdminView('dashboard-highlights');
+            }}
+            className="group cursor-pointer bg-surface-container-low p-6 rounded border ghost-border hover:border-primary-container hover:shadow-[0_0_20px_rgba(0,245,255,0.15)] transition-all"
+          >
+            <div className="flex items-center gap-4 mb-4 text-primary-container group-hover:drop-shadow-[0_0_8px_rgba(0,245,255,0.8)]">
+              <span className="material-symbols-outlined text-3xl">campaign</span>
+              <h2 className="font-headline text-2xl font-bold tracking-wider">DASHBOARD INFO</h2>
+            </div>
+            <p className="font-mono text-sm text-on-surface-variant line-clamp-2">Add recent achievements, participation updates, and info cards to the command dashboard header.</p>
+            <div className="mt-6 flex justify-between items-center text-outline text-[10px] font-mono">
+              <span>{dashboardHighlights?.length || 0} Published</span>
               <span className="group-hover:text-primary transition-colors">ACCESS &rarr;</span>
             </div>
           </div>
@@ -2000,6 +2140,162 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                         <div className="text-outline uppercase mb-2">Weekly Target</div>
                         <p className="text-on-surface-variant whitespace-pre-wrap line-clamp-5">{plan.weekly_target || 'No weekly target set.'}</p>
                       </div>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* DASHBOARD HIGHLIGHTS VIEW */}
+      {activeAdminView === 'dashboard-highlights' && (
+        <div className="flex flex-col gap-6">
+          <div className="bg-surface-container-low p-6 rounded border ghost-border">
+            <div className="flex items-center gap-4 mb-2 text-primary-container">
+              <span className="material-symbols-outlined text-3xl">campaign</span>
+              <h2 className="font-headline text-2xl font-bold tracking-wider">RECENT DASHBOARD INFO</h2>
+            </div>
+            <p className="font-mono text-sm text-on-surface-variant">These cards replace the old readiness/lead/latest boxes in the command dashboard header.</p>
+          </div>
+
+          <form onSubmit={handleDashboardHighlightSubmit} className="bg-background border border-outline/20 rounded p-5 grid grid-cols-1 lg:grid-cols-12 gap-4 font-mono text-xs">
+            <div className="lg:col-span-3">
+              <label className="text-outline block mb-1">Type</label>
+              <select
+                name="highlight_type"
+                value={dashboardHighlightFormData.highlight_type}
+                onChange={handleDashboardHighlightChange}
+                className="w-full bg-surface-container-low border border-outline/30 rounded p-2.5 text-on-surface focus:border-primary focus:outline-none"
+              >
+                <option value="achievement">Achievement</option>
+                <option value="participation">Participation</option>
+                <option value="info">Info</option>
+              </select>
+            </div>
+            <div className="lg:col-span-3">
+              <label className="text-outline block mb-1">Date</label>
+              <input
+                type="date"
+                name="event_date"
+                value={dashboardHighlightFormData.event_date}
+                onChange={handleDashboardHighlightChange}
+                className="w-full bg-surface-container-low border border-outline/30 rounded p-2.5 text-on-surface focus:border-primary focus:outline-none"
+              />
+            </div>
+            <label className="lg:col-span-6 flex items-center gap-2 border border-outline/20 rounded p-3 bg-surface-container-low mt-5 lg:mt-0 lg:self-end">
+              <input
+                type="checkbox"
+                name="is_active"
+                checked={dashboardHighlightFormData.is_active !== false}
+                onChange={handleDashboardHighlightChange}
+                className="accent-primary"
+              />
+              <span className="text-on-surface">Show this item on dashboard</span>
+            </label>
+            <div className="lg:col-span-6">
+              <label className="text-outline block mb-1">Title</label>
+              <input
+                name="title"
+                value={dashboardHighlightFormData.title}
+                onChange={handleDashboardHighlightChange}
+                required
+                className="w-full bg-surface-container-low border border-outline/30 rounded p-2.5 text-on-surface focus:border-primary focus:outline-none"
+                placeholder="Black Hat participation, CTF win, lab notice..."
+              />
+            </div>
+            <div className="lg:col-span-6">
+              <label className="text-outline block mb-1">Reference Link</label>
+              <input
+                name="link"
+                value={dashboardHighlightFormData.link}
+                onChange={handleDashboardHighlightChange}
+                className="w-full bg-surface-container-low border border-outline/30 rounded p-2.5 text-on-surface focus:border-primary focus:outline-none"
+                placeholder="https://..."
+              />
+            </div>
+            <div className="lg:col-span-12">
+              <label className="text-outline block mb-1">Summary</label>
+              <textarea
+                name="summary"
+                value={dashboardHighlightFormData.summary}
+                onChange={handleDashboardHighlightChange}
+                rows="3"
+                className="w-full bg-surface-container-low border border-outline/30 rounded p-3 text-on-surface focus:border-primary focus:outline-none"
+                placeholder="Short dashboard-ready context. Keep it concise."
+              />
+            </div>
+            <div className="lg:col-span-12">
+              <div className="flex items-center justify-between gap-3 mb-2">
+                <label className="text-outline">Participants ({dashboardHighlightFormData.participants.length} selected)</label>
+                <button
+                  type="button"
+                  onClick={() => setDashboardHighlightFormData(prev => ({ ...prev, participants: [] }))}
+                  className="text-primary hover:text-on-surface transition-colors"
+                >
+                  CLEAR
+                </button>
+              </div>
+              <div className="max-h-44 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 border border-outline/20 rounded p-2 bg-surface-container-low">
+                {individuals.map(individual => (
+                  <label key={individual.id} className="flex items-center gap-2 p-2 rounded border border-outline/10 hover:border-primary/30 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={dashboardHighlightFormData.participants.includes(individual.name)}
+                      onChange={() => handleDashboardHighlightParticipantToggle(individual)}
+                      className="w-4 h-4 accent-primary"
+                    />
+                    <span className="text-on-surface uppercase truncate">{individual.name}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="lg:col-span-12 flex flex-col sm:flex-row gap-3">
+              <button type="submit" className="flex-1 bg-primary-container text-on-primary-fixed px-4 py-3 rounded font-headline font-bold hover:shadow-[0_0_18px_rgba(0,245,255,0.35)] transition-all">
+                {editingId ? 'UPDATE DASHBOARD INFO' : 'ADD DASHBOARD INFO'}
+              </button>
+              {editingId && (
+                <button type="button" onClick={resetDashboardHighlightForm} className="sm:w-40 border border-outline/30 text-outline rounded px-4 py-3 font-mono text-xs hover:text-on-surface hover:border-outline transition-colors">
+                  CANCEL EDIT
+                </button>
+              )}
+            </div>
+          </form>
+
+          <div className="bg-surface-container-low border border-outline/20 rounded p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-headline text-xl font-bold text-primary">PUBLISHED ITEMS</h3>
+              <span className="font-mono text-xs text-outline">{dashboardHighlights.length} RECORDS</span>
+            </div>
+            {dashboardHighlights.length === 0 ? (
+              <div className="font-mono text-xs text-outline border border-outline/10 rounded p-4">No dashboard info cards saved yet.</div>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                {dashboardHighlights.map(highlight => (
+                  <article key={highlight.id} className="bg-background border border-outline/20 rounded p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="font-mono text-[10px] uppercase tracking-widest text-primary-container">
+                          {highlight.highlight_type || 'info'} / {highlight.event_date ? String(highlight.event_date).slice(0, 10) : 'NO DATE'}
+                        </div>
+                        <h4 className="font-headline text-lg font-bold text-on-surface mt-1 line-clamp-2">{highlight.title}</h4>
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => handleEditDashboardHighlight(highlight)} className="text-primary hover:bg-primary/10 p-2 rounded border border-primary/20">
+                          <span className="material-symbols-outlined text-sm">edit</span>
+                        </button>
+                        <button onClick={() => handleDeleteDashboardHighlight(highlight)} className="text-error hover:bg-error/10 p-2 rounded border border-error/20">
+                          <span className="material-symbols-outlined text-sm">delete</span>
+                        </button>
+                      </div>
+                    </div>
+                    <p className="font-mono text-xs text-on-surface-variant mt-3 line-clamp-3">{highlight.summary || 'No summary.'}</p>
+                    <div className="font-mono text-[10px] text-outline mt-3 truncate">
+                      {(highlight.participants || []).join(', ') || 'No participants selected'}
+                    </div>
+                    <div className={`font-mono text-[10px] mt-2 ${highlight.is_active === false || highlight.is_active === 0 ? 'text-outline' : 'text-emerald-400'}`}>
+                      {highlight.is_active === false || highlight.is_active === 0 ? 'HIDDEN' : 'VISIBLE'}
                     </div>
                   </article>
                 ))}
@@ -2657,7 +2953,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                           onChange={(e) => handleAttendanceMonthPartChange('year', e.target.value)}
                           className="bg-background border border-outline/30 rounded p-2 text-on-surface focus:border-primary focus:outline-none font-mono text-xs"
                         >
-                          {getYearOptions().map(year => (
+                          {getYearOptions(selectedYear).map(year => (
                             <option key={year} value={year}>{year}</option>
                           ))}
                         </select>
