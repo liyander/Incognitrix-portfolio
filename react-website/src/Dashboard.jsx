@@ -251,45 +251,44 @@ function Dashboard({ useDatabase }) {
 
   return (
     <div className="pt-12 pb-12 px-6 lg:px-12 max-w-7xl mx-auto w-full flex flex-col gap-8 text-on-surface animate-fade-slide">
-      <header className="mb-4 bg-surface-container-low border ghost-border rounded p-6 md:p-8 relative overflow-hidden">
-        <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-error via-primary to-emerald-400 opacity-80"></div>
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-end">
-          <div className="lg:col-span-7">
-            <div className="font-mono text-[10px] uppercase tracking-[0.35em] text-primary-container mb-3">Incognitrix Lab Telemetry</div>
-            <h1 className="font-headline text-4xl md:text-6xl font-bold tracking-tight mb-3 uppercase text-primary">Command Dashboard</h1>
-            <p className="text-on-surface-variant max-w-3xl text-sm md:text-base opacity-90 leading-relaxed font-mono">
-              Live operational view across products, teams, CVE research, achievements, and personnel activity.
-            </p>
-          </div>
-          <div className="lg:col-span-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
-            {recentActivityCards.length > 0 ? recentActivityCards.map((item, index) => (
+      <section className="bg-surface-container-low border ghost-border rounded p-5 md:p-6 relative overflow-hidden">
+        <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-amber-300 via-primary to-emerald-400 opacity-80"></div>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
+          <h2 className="font-headline text-2xl font-bold text-primary flex items-center gap-2">
+            <span className="material-symbols-outlined text-primary-container">campaign</span>
+            Recent Achievements, Participation & Info
+          </h2>
+          <span className="font-mono text-[10px] text-outline uppercase tracking-widest">{recentActivityCards.length} Active</span>
+        </div>
+        {recentActivityCards.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {recentActivityCards.map((item, index) => (
               <a
                 key={`${item.type}-${item.title}-${index}`}
                 href={item.link || undefined}
                 target={item.link ? '_blank' : undefined}
                 rel={item.link ? 'noreferrer' : undefined}
-                className="bg-background/60 border border-outline/20 rounded p-4 min-h-32 hover:border-primary/40 transition-colors"
+                className="bg-background/70 border border-outline/20 rounded p-4 min-h-36 hover:border-primary/40 transition-colors"
               >
                 <div className="flex items-center justify-between gap-2 mb-3">
                   <div className="font-mono text-[10px] text-outline uppercase">{item.type}</div>
                   <span className={`material-symbols-outlined text-base ${activityTone[item.type] || activityTone.info}`}>{activityIcon[item.type] || activityIcon.info}</span>
                 </div>
-                <div className="font-headline text-base text-on-surface font-bold line-clamp-2">{item.title}</div>
-                {item.summary && <div className="font-mono text-[10px] text-on-surface-variant mt-2 line-clamp-2">{item.summary}</div>}
-                <div className="font-mono text-[10px] text-outline mt-3 truncate">
-                  {(item.participants || []).slice(0, 2).join(', ') || (item.date ? String(item.date).slice(0, 10) : 'LAB INFO')}
+                <div className="font-headline text-lg text-on-surface font-bold line-clamp-2">{item.title}</div>
+                {item.summary && <div className="font-mono text-xs text-on-surface-variant mt-2 line-clamp-2">{item.summary}</div>}
+                <div className="font-mono text-[10px] text-outline mt-4 truncate">
+                  {(item.participants || []).slice(0, 3).join(', ') || (item.date ? String(item.date).slice(0, 10) : 'LAB INFO')}
                 </div>
               </a>
-            )) : (
-              <div className="sm:col-span-3 bg-background/60 border border-outline/20 rounded p-4">
-                <div className="font-mono text-[10px] text-outline uppercase mb-1">Recent Activity</div>
-                <div className="font-headline text-lg text-on-surface font-bold">No dashboard highlights yet</div>
-                <div className="font-mono text-[10px] text-outline mt-2">Add achievements, participation, or info from the admin panel.</div>
-              </div>
-            )}
+            ))}
           </div>
-        </div>
-      </header>
+        ) : (
+          <div className="bg-background/70 border border-outline/20 rounded p-5">
+            <div className="font-headline text-lg text-on-surface font-bold">No dashboard highlights yet</div>
+            <div className="font-mono text-xs text-outline mt-2">Add achievements, participation, or info from the admin panel.</div>
+          </div>
+        )}
+      </section>
 
       {/* Top Metrics Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
