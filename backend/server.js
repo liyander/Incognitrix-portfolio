@@ -1811,6 +1811,47 @@ const toDateKey = (value) => {
     return String(value).slice(0, 10);
 };
 
+const latestDateKey = (...values) => values
+    .map(toDateKey)
+    .filter(Boolean)
+    .sort()
+    .pop() || null;
+
+const earliestDateKey = (...values) => values
+    .map(toDateKey)
+    .filter(Boolean)
+    .sort()
+    .shift() || null;
+
+const getAttendanceCountingStart = ({ rangeStartKey, userCreatedAt, individualCreatedAt, historyDates = [] }) => {
+    const createdStartKey = latestDateKey(rangeStartKey, userCreatedAt, individualCreatedAt) || rangeStartKey;
+    const firstHistoryKey = earliestDateKey(...historyDates);
+
+    if (!firstHistoryKey) return createdStartKey;
+
+    return firstHistoryKey < createdStartKey ? firstHistoryKey : createdStartKey;
+};
+
+const getFirstAttendanceHistoryByUser = async () => {
+    const [rows] = await pool.query(`
+        SELECT user_id, MIN(record_date) AS first_record_date
+        FROM (
+            SELECT user_id, attendance_date AS record_date FROM attendance
+            UNION ALL
+            SELECT user_id, od_date AS record_date FROM attendance_od
+        ) attendance_history
+        GROUP BY user_id
+    `);
+
+    const firstHistoryByUser = new Map();
+    rows.forEach(row => {
+        const userKey = String(row.user_id || '');
+        const dateKey = toDateKey(row.first_record_date);
+        if (userKey && dateKey) firstHistoryByUser.set(userKey, dateKey);
+    });
+    return firstHistoryByUser;
+};
+
 const isFirstOrThirdSaturday = (date) => {
     if (date.getDay() !== 6) return false;
     const day = date.getDate();
@@ -1927,6 +1968,8 @@ const buildAttendanceStatusCsv = async (startKey, endKey, percentageHeader = 'At
         odByUser.get(userKey).add(dateKey);
     });
 
+    const firstHistoryByUser = await getFirstAttendanceHistoryByUser();
+
     const headers = [
         'Studying Year',
         'Name',
@@ -1940,14 +1983,22 @@ const buildAttendanceStatusCsv = async (startKey, endKey, percentageHeader = 'At
         const userKey = person.user_id ? String(person.user_id) : null;
         const attendedDates = userKey ? (attendanceByUser.get(userKey) || new Set()) : new Set();
         const odDates = userKey ? (odByUser.get(userKey) || new Set()) : new Set();
+        const countingStartKey = getAttendanceCountingStart({
+            rangeStartKey: startKey,
+            userCreatedAt: person.user_created_at,
+            individualCreatedAt: person.individual_created_at,
+            historyDates: userKey && firstHistoryByUser.has(userKey) ? [firstHistoryByUser.get(userKey)] : []
+        });
 
         const statusCells = workingDateKeys.map(dateKey => {
+            if (dateKey < countingStartKey) return 'Not Joined';
             if (attendedDates.has(dateKey)) return 'Present';
             if (odDates.has(dateKey)) return 'OD';
             return 'Absent';
         });
         const effectivePresent = statusCells.filter(status => status === 'Present' || status === 'OD').length;
-        const percentage = workingDateKeys.length === 0 ? 100 : Math.round((effectivePresent / workingDateKeys.length) * 100);
+        const countedDays = statusCells.filter(status => status !== 'Not Joined').length;
+        const percentage = countedDays === 0 ? 100 : Math.round((effectivePresent / countedDays) * 100);
 
         return [
             person.studying_year || '',
@@ -1978,8 +2029,6 @@ app.get('/api/admin/attendance', async (req, res) => {
         const workingDateKeys = await getWorkingDateKeys(minDateKey, todayKey);
 
         const workingDateSet = new Set(workingDateKeys);
-        const totalWorkingDays = workingDateKeys.length;
-
         const [users] = await pool.query(`
             SELECT
                 u.id,
@@ -2020,14 +2069,24 @@ app.get('/api/admin/attendance', async (req, res) => {
             odByUser.get(userKey).add(dateKey);
         });
 
+        const firstHistoryByUser = await getFirstAttendanceHistoryByUser();
+
         const attendanceData = users.map(user => {
             const userKey = String(user.id);
+            const countingStartKey = getAttendanceCountingStart({
+                rangeStartKey: minDateKey,
+                userCreatedAt: user.user_created_at,
+                individualCreatedAt: user.individual_created_at,
+                historyDates: firstHistoryByUser.has(userKey) ? [firstHistoryByUser.get(userKey)] : []
+            });
+            const userWorkingDays = workingDateKeys.filter(dateKey => dateKey >= countingStartKey);
+            const userWorkingDateSet = new Set(userWorkingDays);
             const attendedDates = attendanceByUser.get(userKey) || new Set();
             const odDates = odByUser.get(userKey) || new Set();
-            const attendedDays = attendedDates.size;
-            const excusedOdDays = [...odDates].filter(dateKey => !attendedDates.has(dateKey)).length;
+            const attendedDays = [...attendedDates].filter(dateKey => userWorkingDateSet.has(dateKey)).length;
+            const excusedOdDays = [...odDates].filter(dateKey => userWorkingDateSet.has(dateKey) && !attendedDates.has(dateKey)).length;
             const effectivePresent = attendedDays + excusedOdDays;
-            const percentage = totalWorkingDays === 0 ? 100 : Math.round((effectivePresent / totalWorkingDays) * 100);
+            const percentage = userWorkingDays.length === 0 ? 100 : Math.round((effectivePresent / userWorkingDays.length) * 100);
 
             return {
                 id: user.id,
@@ -2035,8 +2094,8 @@ app.get('/api/admin/attendance', async (req, res) => {
                 studying_year: user.studying_year,
                 attended_days: attendedDays,
                 od_days: excusedOdDays,
-                working_days: totalWorkingDays,
-                attendance_start_date: minDateKey,
+                working_days: userWorkingDays.length,
+                attendance_start_date: countingStartKey,
                 percentage
             };
         });
@@ -2272,8 +2331,6 @@ app.get('/api/admin/attendance/monthly-export', async (req, res) => {
 
         const workingDateKeys = await getWorkingDateKeys(monthStart, exportEnd);
         const workingDateSet = new Set(workingDateKeys);
-        const totalWorkingDays = workingDateKeys.length;
-
         const [users] = await pool.query(`
             SELECT
                 u.id,
@@ -2282,6 +2339,8 @@ app.get('/api/admin/attendance/monthly-export', async (req, res) => {
                 i.department,
                 i.year_of_study,
                 i.studying_year,
+                i.created_at as individual_created_at,
+                u.created_at as user_created_at,
                 t.name as team_name
             FROM users u
             LEFT JOIN individuals i
@@ -2316,6 +2375,8 @@ app.get('/api/admin/attendance/monthly-export', async (req, res) => {
             odByUser.get(userKey).add(dateKey);
         });
 
+        const firstHistoryByUser = await getFirstAttendanceHistoryByUser();
+
         const headers = [
             'Studying Year',
             'Name',
@@ -2331,12 +2392,20 @@ app.get('/api/admin/attendance/monthly-export', async (req, res) => {
 
         const rows = users.map(user => {
             const userKey = String(user.id);
+            const countingStartKey = getAttendanceCountingStart({
+                rangeStartKey: monthStart,
+                userCreatedAt: user.user_created_at,
+                individualCreatedAt: user.individual_created_at,
+                historyDates: firstHistoryByUser.has(userKey) ? [firstHistoryByUser.get(userKey)] : []
+            });
+            const userWorkingDays = workingDateKeys.filter(dateKey => dateKey >= countingStartKey);
+            const userWorkingDateSet = new Set(userWorkingDays);
             const attendedDates = attendanceByUser.get(userKey) || new Set();
             const odDates = odByUser.get(userKey) || new Set();
-            const odDays = [...odDates].filter(dateKey => !attendedDates.has(dateKey)).length;
-            const attendedDays = attendedDates.size;
+            const odDays = [...odDates].filter(dateKey => userWorkingDateSet.has(dateKey) && !attendedDates.has(dateKey)).length;
+            const attendedDays = [...attendedDates].filter(dateKey => userWorkingDateSet.has(dateKey)).length;
             const effectivePresent = attendedDays + odDays;
-            const percentage = totalWorkingDays === 0 ? 100 : Math.round((effectivePresent / totalWorkingDays) * 100);
+            const percentage = userWorkingDays.length === 0 ? 100 : Math.round((effectivePresent / userWorkingDays.length) * 100);
 
             return [
                 user.studying_year || '',
@@ -2344,7 +2413,7 @@ app.get('/api/admin/attendance/monthly-export', async (req, res) => {
                 user.username,
                 'Cybersecurity',
                 requestedMonth,
-                totalWorkingDays,
+                userWorkingDays.length,
                 attendedDays,
                 odDays,
                 effectivePresent,
