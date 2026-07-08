@@ -380,6 +380,26 @@ async function ensureRuntimeSchema() {
             )
         `);
         await pool.query(`
+            UPDATE users u
+            JOIN (
+                SELECT user_id, MIN(record_date) AS first_attendance_date
+                FROM (
+                    SELECT user_id, attendance_date AS record_date FROM attendance
+                    UNION ALL
+                    SELECT user_id, od_date AS record_date FROM attendance_od
+                ) attendance_history
+                GROUP BY user_id
+            ) history ON CAST(u.id AS CHAR) = CAST(history.user_id AS CHAR)
+            SET u.created_at = LEAST(DATE(u.created_at), history.first_attendance_date)
+            WHERE history.first_attendance_date IS NOT NULL
+        `);
+        await pool.query(`
+            UPDATE individuals i
+            JOIN users u ON u.id = i.user_id
+            SET i.created_at = LEAST(DATE(i.created_at), DATE(u.created_at))
+            WHERE i.user_id IS NOT NULL
+        `);
+        await pool.query(`
             CREATE TABLE IF NOT EXISTS app_settings (
                 setting_key VARCHAR(100) PRIMARY KEY,
                 setting_value VARCHAR(255) NOT NULL,
