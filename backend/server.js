@@ -139,6 +139,14 @@ const maxDateKey = (...values) => values
     .sort()
     .pop() || null;
 
+const setEarliestUserDate = (map, userId, dateValue) => {
+    const userKey = String(userId || '');
+    const dateKey = toDateKey(dateValue);
+    if (!userKey || !dateKey) return;
+    const current = map.get(userKey);
+    if (!current || dateKey < current) map.set(userKey, dateKey);
+};
+
 // Database Connection
 const pool = mysql.createPool({
     host: process.env.DB_HOST || 'localhost',
@@ -1914,6 +1922,10 @@ const buildAttendanceStatusCsv = async (startKey, endKey, percentageHeader = 'At
         odByUser.get(userKey).add(dateKey);
     });
 
+    const earliestRecordByUser = new Map();
+    attendanceRows.forEach(row => setEarliestUserDate(earliestRecordByUser, row.user_id, row.attendance_date));
+    odRows.forEach(row => setEarliestUserDate(earliestRecordByUser, row.user_id, row.od_date));
+
     const headers = [
         'Studying Year',
         'Name',
@@ -1925,7 +1937,9 @@ const buildAttendanceStatusCsv = async (startKey, endKey, percentageHeader = 'At
 
     const rows = people.map(person => {
         const userKey = person.user_id ? String(person.user_id) : null;
-        const personStartKey = maxDateKey(startKey, person.individual_created_at, person.user_created_at) || startKey;
+        const earliestRecordKey = userKey ? earliestRecordByUser.get(userKey) : null;
+        const createdStartKey = maxDateKey(startKey, person.individual_created_at, person.user_created_at) || startKey;
+        const personStartKey = earliestRecordKey && earliestRecordKey < createdStartKey ? earliestRecordKey : createdStartKey;
         const attendedDates = userKey ? (attendanceByUser.get(userKey) || new Set()) : new Set();
         const odDates = userKey ? (odByUser.get(userKey) || new Set()) : new Set();
 
@@ -2003,9 +2017,15 @@ app.get('/api/admin/attendance', async (req, res) => {
             odByUser.get(userKey).add(dateKey);
         });
 
+        const earliestRecordByUser = new Map();
+        attendanceRows.forEach(row => setEarliestUserDate(earliestRecordByUser, row.user_id, row.attendance_date));
+        odRows.forEach(row => setEarliestUserDate(earliestRecordByUser, row.user_id, row.od_date));
+
         const attendanceData = users.map(user => {
             const userKey = String(user.id);
-            const userStartKey = maxDateKey(minDateKey, user.individual_created_at, user.user_created_at) || minDateKey;
+            const earliestRecordKey = earliestRecordByUser.get(userKey);
+            const createdStartKey = maxDateKey(minDateKey, user.individual_created_at, user.user_created_at) || minDateKey;
+            const userStartKey = earliestRecordKey && earliestRecordKey < createdStartKey ? earliestRecordKey : createdStartKey;
             const userWorkingDays = workingDateKeys.filter(dateKey => dateKey >= userStartKey);
             const userWorkingDateSet = new Set(userWorkingDays);
             const attendedDates = attendanceByUser.get(userKey) || new Set();
