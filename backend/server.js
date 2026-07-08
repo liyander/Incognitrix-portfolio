@@ -132,21 +132,6 @@ const parseLooseDateKey = (value) => {
     return null;
 };
 
-const maxDateKey = (...values) => values
-    .filter(Boolean)
-    .map(toDateKey)
-    .filter(Boolean)
-    .sort()
-    .pop() || null;
-
-const setEarliestUserDate = (map, userId, dateValue) => {
-    const userKey = String(userId || '');
-    const dateKey = toDateKey(dateValue);
-    if (!userKey || !dateKey) return;
-    const current = map.get(userKey);
-    if (!current || dateKey < current) map.set(userKey, dateKey);
-};
-
 // Database Connection
 const pool = mysql.createPool({
     host: process.env.DB_HOST || 'localhost',
@@ -1942,10 +1927,6 @@ const buildAttendanceStatusCsv = async (startKey, endKey, percentageHeader = 'At
         odByUser.get(userKey).add(dateKey);
     });
 
-    const earliestRecordByUser = new Map();
-    attendanceRows.forEach(row => setEarliestUserDate(earliestRecordByUser, row.user_id, row.attendance_date));
-    odRows.forEach(row => setEarliestUserDate(earliestRecordByUser, row.user_id, row.od_date));
-
     const headers = [
         'Studying Year',
         'Name',
@@ -1957,21 +1938,16 @@ const buildAttendanceStatusCsv = async (startKey, endKey, percentageHeader = 'At
 
     const rows = people.map(person => {
         const userKey = person.user_id ? String(person.user_id) : null;
-        const earliestRecordKey = userKey ? earliestRecordByUser.get(userKey) : null;
-        const createdStartKey = maxDateKey(startKey, person.individual_created_at, person.user_created_at) || startKey;
-        const personStartKey = earliestRecordKey && earliestRecordKey < createdStartKey ? earliestRecordKey : createdStartKey;
         const attendedDates = userKey ? (attendanceByUser.get(userKey) || new Set()) : new Set();
         const odDates = userKey ? (odByUser.get(userKey) || new Set()) : new Set();
 
         const statusCells = workingDateKeys.map(dateKey => {
-            if (dateKey < personStartKey) return 'Not Joined';
             if (attendedDates.has(dateKey)) return 'Present';
             if (odDates.has(dateKey)) return 'OD';
             return 'Absent';
         });
         const effectivePresent = statusCells.filter(status => status === 'Present' || status === 'OD').length;
-        const countedDays = statusCells.filter(status => status !== 'Not Joined').length;
-        const percentage = countedDays === 0 ? 100 : Math.round((effectivePresent / countedDays) * 100);
+        const percentage = workingDateKeys.length === 0 ? 100 : Math.round((effectivePresent / workingDateKeys.length) * 100);
 
         return [
             person.studying_year || '',
@@ -1990,7 +1966,14 @@ const buildAttendanceStatusCsv = async (startKey, endKey, percentageHeader = 'At
 app.get('/api/admin/attendance', async (req, res) => {
     try {
         const todayKey = formatDateKey(new Date());
-        const [minRows] = await pool.query('SELECT MIN(attendance_date) as minDate FROM attendance');
+        const [minRows] = await pool.query(`
+            SELECT MIN(record_date) as minDate
+            FROM (
+                SELECT attendance_date as record_date FROM attendance
+                UNION ALL
+                SELECT od_date as record_date FROM attendance_od
+            ) attendance_history
+        `);
         const minDateKey = toDateKey(minRows[0]?.minDate) || todayKey;
         const workingDateKeys = await getWorkingDateKeys(minDateKey, todayKey);
 
@@ -2037,23 +2020,14 @@ app.get('/api/admin/attendance', async (req, res) => {
             odByUser.get(userKey).add(dateKey);
         });
 
-        const earliestRecordByUser = new Map();
-        attendanceRows.forEach(row => setEarliestUserDate(earliestRecordByUser, row.user_id, row.attendance_date));
-        odRows.forEach(row => setEarliestUserDate(earliestRecordByUser, row.user_id, row.od_date));
-
         const attendanceData = users.map(user => {
             const userKey = String(user.id);
-            const earliestRecordKey = earliestRecordByUser.get(userKey);
-            const createdStartKey = maxDateKey(minDateKey, user.individual_created_at, user.user_created_at) || minDateKey;
-            const userStartKey = earliestRecordKey && earliestRecordKey < createdStartKey ? earliestRecordKey : createdStartKey;
-            const userWorkingDays = workingDateKeys.filter(dateKey => dateKey >= userStartKey);
-            const userWorkingDateSet = new Set(userWorkingDays);
             const attendedDates = attendanceByUser.get(userKey) || new Set();
             const odDates = odByUser.get(userKey) || new Set();
-            const attendedDays = [...attendedDates].filter(dateKey => userWorkingDateSet.has(dateKey)).length;
-            const excusedOdDays = [...odDates].filter(dateKey => userWorkingDateSet.has(dateKey) && !attendedDates.has(dateKey)).length;
+            const attendedDays = attendedDates.size;
+            const excusedOdDays = [...odDates].filter(dateKey => !attendedDates.has(dateKey)).length;
             const effectivePresent = attendedDays + excusedOdDays;
-            const percentage = userWorkingDays.length === 0 ? 100 : Math.round((effectivePresent / userWorkingDays.length) * 100);
+            const percentage = totalWorkingDays === 0 ? 100 : Math.round((effectivePresent / totalWorkingDays) * 100);
 
             return {
                 id: user.id,
@@ -2061,8 +2035,8 @@ app.get('/api/admin/attendance', async (req, res) => {
                 studying_year: user.studying_year,
                 attended_days: attendedDays,
                 od_days: excusedOdDays,
-                working_days: userWorkingDays.length,
-                attendance_start_date: userStartKey,
+                working_days: totalWorkingDays,
+                attendance_start_date: minDateKey,
                 percentage
             };
         });
