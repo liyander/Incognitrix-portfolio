@@ -1401,17 +1401,68 @@ app.delete('/api/admin/lab-plans/:id', async (req, res) => {
 
 app.get('/api/dashboard-highlights', async (req, res) => {
     try {
-        const [rows] = await pool.query(`
+        const [highlightRows] = await pool.query(`
             SELECT *
             FROM dashboard_highlights
             WHERE is_active = TRUE
             ORDER BY COALESCE(event_date, DATE(created_at)) DESC, id DESC
             LIMIT 12
         `);
-        res.json(rows.map(row => ({
+        const manualHighlights = highlightRows.map(row => ({
             ...row,
+            source: 'manual',
             participants: parseJsonArray(row.participants)
-        })));
+        }));
+
+        const [achievementRows] = await pool.query(`
+            SELECT id, title, description, date, reference_link, contributors
+            FROM achievements
+            ORDER BY COALESCE(date, CURRENT_DATE) DESC, id DESC
+            LIMIT 6
+        `);
+        const achievementHighlights = achievementRows.map(row => ({
+            id: `achievement-${row.id}`,
+            highlight_type: 'achievement',
+            title: row.title,
+            summary: row.description || '',
+            event_date: row.date,
+            link: parseJsonArray(row.reference_link)[0] || '',
+            participants: parseJsonArray(row.contributors),
+            is_active: true,
+            source: 'achievement'
+        }));
+
+        const [participationRows] = await pool.query(`
+            SELECT *
+            FROM ctf_participations
+            WHERE participating = TRUE
+            ORDER BY COALESCE(start_time, NOW()) DESC, id DESC
+            LIMIT 6
+        `);
+        const participationsWithTeams = await attachParticipationTeams(participationRows);
+        const participationHighlights = participationsWithTeams.map(row => ({
+            id: `participation-${row.id}`,
+            highlight_type: 'participation',
+            title: row.ctf_title,
+            summary: row.notes || row.status || 'Participation tracked',
+            event_date: row.start_time,
+            link: '',
+            participants: (row.teams || []).flatMap(team => Array.isArray(team.members) ? team.members.map(member => member.name || member).filter(Boolean) : []),
+            is_active: true,
+            source: 'participation'
+        }));
+
+        const combined = [...manualHighlights, ...achievementHighlights, ...participationHighlights]
+            .filter(item => item.title)
+            .sort((a, b) => {
+                const dateA = toDateKey(a.event_date) || '0000-00-00';
+                const dateB = toDateKey(b.event_date) || '0000-00-00';
+                if (dateA !== dateB) return dateB.localeCompare(dateA);
+                return String(b.id).localeCompare(String(a.id));
+            })
+            .slice(0, 12);
+
+        res.json(combined);
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Server error fetching dashboard highlights' });
