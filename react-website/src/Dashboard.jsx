@@ -268,16 +268,16 @@ function Dashboard({ useDatabase }) {
                 href={item.link || undefined}
                 target={item.link ? '_blank' : undefined}
                 rel={item.link ? 'noreferrer' : undefined}
-                className="bg-background/70 border border-outline/20 rounded p-4 min-h-36 hover:border-primary/40 transition-colors"
+                className="bg-background/70 border border-outline/20 rounded p-4 hover:border-primary/40 transition-colors"
               >
                 <div className="flex items-center justify-between gap-2 mb-3">
                   <div className="font-mono text-[10px] text-outline uppercase">{item.type}</div>
                   <span className={`material-symbols-outlined text-base ${activityTone[item.type] || activityTone.info}`}>{activityIcon[item.type] || activityIcon.info}</span>
                 </div>
-                <div className="font-headline text-lg text-on-surface font-bold line-clamp-2">{item.title}</div>
-                {item.summary && <div className="font-mono text-xs text-on-surface-variant mt-2 line-clamp-2">{item.summary}</div>}
-                <div className="font-mono text-[10px] text-outline mt-4 truncate">
-                  {(item.participants || []).slice(0, 3).join(', ') || (item.date ? String(item.date).slice(0, 10) : 'LAB INFO')}
+                <div className="font-headline text-lg text-on-surface font-bold break-words">{item.title}</div>
+                {item.summary && <div className="font-mono text-xs text-on-surface-variant mt-2 whitespace-pre-wrap break-words leading-relaxed">{item.summary}</div>}
+                <div className="font-mono text-[10px] text-outline mt-4 whitespace-normal break-words">
+                  {(item.participants || []).join(', ') || (item.date ? String(item.date).slice(0, 10) : 'LAB INFO')}
                 </div>
               </a>
             ))}
