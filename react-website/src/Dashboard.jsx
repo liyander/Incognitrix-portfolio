@@ -187,6 +187,8 @@ function Dashboard({ useDatabase }) {
     fetchData();
   }, [useDatabase]);
 
+  const rangeProject = projects.find(project => project.title === 'Incognitrix Range');
+  const portfolioProject = projects.find(project => project.title === 'Incognitrix Portfolio');
   const scheduleLines = String(currentLabPlan?.daily_schedule || '').split('\n').map(line => line.trim()).filter(Boolean);
   const targetLines = String(currentLabPlan?.weekly_target || '').split('\n').map(line => line.trim()).filter(Boolean);
   const recentActivityCards = [
