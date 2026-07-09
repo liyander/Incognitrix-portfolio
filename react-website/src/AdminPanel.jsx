@@ -74,6 +74,38 @@ const getYearOptions = (selectedYear) => {
   return [...years].sort((a, b) => b - a);
 };
 
+const SCHEDULE_YEARS = ['I', 'II', 'III', 'IV'];
+const SCHEDULE_TYPES = ['Placement Training', 'Weekly Assessment', 'Custom input', 'Project Work/Lab work'];
+
+const buildScheduleTimeOptions = () => {
+  const options = [];
+  for (let minutes = (8 * 60) + 30; minutes <= (16 * 60) + 30; minutes += 15) {
+    const hour = Math.floor(minutes / 60);
+    const minute = minutes % 60;
+    options.push(`${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`);
+  }
+  return options;
+};
+
+const SCHEDULE_TIME_OPTIONS = buildScheduleTimeOptions();
+
+const createScheduleSlot = () => ({
+  id: `schedule-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+  years: [],
+  start_time: '08:30',
+  end_time: '09:30',
+  schedule_type: 'Project Work/Lab work',
+  custom_text: ''
+});
+
+const createBreakSlot = () => ({
+  id: `break-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+  years: [],
+  start_time: '12:30',
+  end_time: '13:15',
+  title: 'Lunch'
+});
+
 function AdminPanel({ onBack, adminUser, onLogout }) {
   const [activeAdminView, setActiveAdminView] = useState('dashboard'); // 'dashboard' | 'projects-list' | 'add-project' | 'teams-list' | 'add-team' | 'individuals-list' | 'add-individual' | 'cves-list' | 'add-cve' | 'achievements-list' | 'add-achievement' | 'admin-settings'
   const [editingId, setEditingId] = useState(null);
@@ -120,7 +152,14 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
   const [ctfParticipationFormData, setCtfParticipationFormData] = useState({ ctf_id: '', ctf_title: '', ctf_source: 'manual', start_time: '', end_time: '', participating: true, notes: '' });
   const [ctfTeamFormData, setCtfTeamFormData] = useState({ participation_id: '', team_name: '', position: '', score: '', notes: '', members: [] });
   const [editingCtfTeamId, setEditingCtfTeamId] = useState(null);
-  const [labPlanFormData, setLabPlanFormData] = useState({ plan_date: getCurrentDateValue(), target_week: getCurrentWeekValue(), daily_schedule: '', weekly_target: '' });
+  const [labPlanFormData, setLabPlanFormData] = useState({
+    plan_date: getCurrentDateValue(),
+    target_week: getCurrentWeekValue(),
+    daily_schedule: '',
+    weekly_target: '',
+    schedule_slots: [createScheduleSlot()],
+    break_slots: [createBreakSlot()]
+  });
   const [dashboardHighlightFormData, setDashboardHighlightFormData] = useState({
     highlight_type: 'achievement',
     title: '',
@@ -486,6 +525,60 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
 
   const handleLabPlanChange = (e) => {
     setLabPlanFormData({ ...labPlanFormData, [e.target.name]: e.target.value });
+  };
+
+  const getMinutesFromTime = (value) => {
+    const [hour, minute] = String(value || '').split(':').map(Number);
+    return (hour * 60) + minute;
+  };
+
+  const scheduleRangesOverlap = (aStart, aEnd, bStart, bEnd) => (
+    getMinutesFromTime(aStart) < getMinutesFromTime(bEnd) &&
+    getMinutesFromTime(bStart) < getMinutesFromTime(aEnd)
+  );
+
+  const getScheduleConflict = (slot, breakSlots = labPlanFormData.break_slots) => {
+    const years = Array.isArray(slot.years) ? slot.years : [];
+    return (breakSlots || []).find(breakSlot => (
+      years.some(year => (breakSlot.years || []).includes(year)) &&
+      scheduleRangesOverlap(slot.start_time, slot.end_time, breakSlot.start_time, breakSlot.end_time)
+    ));
+  };
+
+  const updateLabPlanArrayItem = (field, id, patch) => {
+    setLabPlanFormData(prev => ({
+      ...prev,
+      [field]: (prev[field] || []).map(item => item.id === id ? { ...item, ...patch } : item)
+    }));
+  };
+
+  const removeLabPlanArrayItem = (field, id) => {
+    setLabPlanFormData(prev => ({
+      ...prev,
+      [field]: (prev[field] || []).filter(item => item.id !== id)
+    }));
+  };
+
+  const toggleLabPlanYear = (field, id, year) => {
+    setLabPlanFormData(prev => ({
+      ...prev,
+      [field]: (prev[field] || []).map(item => {
+        if (item.id !== id) return item;
+        const years = Array.isArray(item.years) ? item.years : [];
+        return {
+          ...item,
+          years: years.includes(year) ? years.filter(value => value !== year) : [...years, year]
+        };
+      })
+    }));
+  };
+
+  const addScheduleSlot = () => {
+    setLabPlanFormData(prev => ({ ...prev, schedule_slots: [...(prev.schedule_slots || []), createScheduleSlot()] }));
+  };
+
+  const addBreakSlot = () => {
+    setLabPlanFormData(prev => ({ ...prev, break_slots: [...(prev.break_slots || []), createBreakSlot()] }));
   };
 
   const handleDashboardHighlightChange = (e) => {
@@ -897,6 +990,21 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
       showAlert('Plan date and target week are required.', 'error');
       return;
     }
+    const invalidSchedule = (labPlanFormData.schedule_slots || []).find(slot => !slot.start_time || !slot.end_time || !(slot.years || []).length || (slot.schedule_type === 'Custom input' && !slot.custom_text?.trim()));
+    if (invalidSchedule) {
+      showAlert('Every schedule slot needs time, at least one year, and custom text when Custom input is selected.', 'error');
+      return;
+    }
+    const invalidBreak = (labPlanFormData.break_slots || []).find(slot => !slot.start_time || !slot.end_time || !(slot.years || []).length);
+    if (invalidBreak) {
+      showAlert('Every break/lunch slot needs time and at least one year.', 'error');
+      return;
+    }
+    const conflictingSlot = (labPlanFormData.schedule_slots || []).find(slot => getScheduleConflict(slot));
+    if (conflictingSlot) {
+      showAlert('A work schedule conflicts with a break/lunch slot for the same year.', 'error');
+      return;
+    }
 
     try {
       const response = await fetch(LAB_PLANS_API_URL, {
@@ -921,7 +1029,9 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
       plan_date: String(plan.plan_date || '').slice(0, 10),
       target_week: plan.target_week || getCurrentWeekValue(),
       daily_schedule: plan.daily_schedule || '',
-      weekly_target: plan.weekly_target || ''
+      weekly_target: plan.weekly_target || '',
+      schedule_slots: Array.isArray(plan.schedule_slots) && plan.schedule_slots.length ? plan.schedule_slots : [createScheduleSlot()],
+      break_slots: Array.isArray(plan.break_slots) && plan.break_slots.length ? plan.break_slots : [createBreakSlot()]
     });
     setActiveAdminView('lab-plan');
   };
@@ -1079,6 +1189,25 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
       fetchProjects();
     } catch (err) {
       console.error('Failed to delete project', err);
+    }
+  };
+
+  const handleMoveProject = async (id, direction) => {
+    try {
+      const response = await fetch(`${API_URL}/${id}/move`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ direction })
+      });
+      const data = await readJsonResponse(response);
+      if (!response.ok) {
+        showAlert(data?.error || 'Failed to update project order.', 'error');
+        return;
+      }
+      fetchProjects();
+    } catch (err) {
+      console.error('Failed to move project', err);
+      showAlert('Failed to update project order. Check console.', 'error');
     }
   };
 
@@ -2082,16 +2211,120 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                 SAVE PLAN
               </button>
             </div>
-            <div className="lg:col-span-6">
-              <label className="text-outline block mb-1">Daily Schedule</label>
-              <textarea
-                name="daily_schedule"
-                value={labPlanFormData.daily_schedule}
-                onChange={handleLabPlanChange}
-                rows="8"
-                className="w-full bg-surface-container-low border border-outline/30 rounded p-3 text-on-surface focus:border-primary focus:outline-none"
-                placeholder="09:30 - Standup&#10;10:00 - CVE simulation work&#10;14:00 - Range testing"
-              />
+            <div className="lg:col-span-12 border border-outline/20 rounded p-4 bg-surface-container-low">
+              <div className="flex items-center justify-between gap-3 mb-4">
+                <div>
+                  <h3 className="font-headline text-lg font-bold text-primary">Structured Schedule</h3>
+                  <p className="text-outline text-[11px] mt-1">Allocate work from 08:30 to 16:30 for years I, II, III, and IV.</p>
+                </div>
+                <button type="button" onClick={addScheduleSlot} className="text-primary border border-primary/30 rounded px-3 py-2 hover:bg-primary/10 flex items-center gap-1">
+                  <span className="material-symbols-outlined text-sm">add</span>
+                  ADD SLOT
+                </button>
+              </div>
+              <div className="flex flex-col gap-3">
+                {(labPlanFormData.schedule_slots || []).map(slot => {
+                  const conflict = getScheduleConflict(slot);
+                  return (
+                    <div key={slot.id} className={`border rounded p-3 grid grid-cols-1 xl:grid-cols-12 gap-3 ${conflict ? 'border-error/50 bg-error/5' : 'border-outline/20 bg-background'}`}>
+                      <div className="xl:col-span-2">
+                        <label className="text-outline block mb-1">Start</label>
+                        <select value={slot.start_time} onChange={(e) => updateLabPlanArrayItem('schedule_slots', slot.id, { start_time: e.target.value })} className="w-full bg-surface-container-low border border-outline/30 rounded p-2 text-on-surface">
+                          {SCHEDULE_TIME_OPTIONS.map(time => <option key={time} value={time}>{time}</option>)}
+                        </select>
+                      </div>
+                      <div className="xl:col-span-2">
+                        <label className="text-outline block mb-1">End</label>
+                        <select value={slot.end_time} onChange={(e) => updateLabPlanArrayItem('schedule_slots', slot.id, { end_time: e.target.value })} className="w-full bg-surface-container-low border border-outline/30 rounded p-2 text-on-surface">
+                          {SCHEDULE_TIME_OPTIONS.map(time => <option key={time} value={time}>{time}</option>)}
+                        </select>
+                      </div>
+                      <div className="xl:col-span-3">
+                        <label className="text-outline block mb-1">Years</label>
+                        <div className="grid grid-cols-4 gap-1">
+                          {SCHEDULE_YEARS.map(year => (
+                            <label key={year} className="flex items-center justify-center gap-1 border border-outline/20 rounded px-2 py-2 cursor-pointer">
+                              <input type="checkbox" checked={(slot.years || []).includes(year)} onChange={() => toggleLabPlanYear('schedule_slots', slot.id, year)} className="accent-primary" />
+                              <span>{year}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="xl:col-span-3">
+                        <label className="text-outline block mb-1">Schedule</label>
+                        <select value={slot.schedule_type} onChange={(e) => updateLabPlanArrayItem('schedule_slots', slot.id, { schedule_type: e.target.value })} className="w-full bg-surface-container-low border border-outline/30 rounded p-2 text-on-surface">
+                          {SCHEDULE_TYPES.map(type => <option key={type} value={type}>{type}</option>)}
+                        </select>
+                        {slot.schedule_type === 'Custom input' && (
+                          <input value={slot.custom_text || ''} onChange={(e) => updateLabPlanArrayItem('schedule_slots', slot.id, { custom_text: e.target.value })} className="w-full mt-2 bg-surface-container-low border border-outline/30 rounded p-2 text-on-surface" placeholder="Custom activity" />
+                        )}
+                      </div>
+                      <div className="xl:col-span-2 flex xl:items-end">
+                        <button type="button" onClick={() => removeLabPlanArrayItem('schedule_slots', slot.id)} className="w-full text-error border border-error/30 rounded px-3 py-2 hover:bg-error/10 flex items-center justify-center gap-1">
+                          <span className="material-symbols-outlined text-sm">delete</span>
+                          REMOVE
+                        </button>
+                      </div>
+                      {conflict && (
+                        <div className="xl:col-span-12 text-error text-[11px]">
+                          Conflicts with {conflict.title || 'Break / Lunch'} for {(conflict.years || []).join(', ')}. Work cannot be allocated during break/lunch.
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="lg:col-span-12 border border-outline/20 rounded p-4 bg-surface-container-low">
+              <div className="flex items-center justify-between gap-3 mb-4">
+                <div>
+                  <h3 className="font-headline text-lg font-bold text-primary">Break / Lunch Allocation</h3>
+                  <p className="text-outline text-[11px] mt-1">Work slots for the same year cannot overlap these break/lunch times.</p>
+                </div>
+                <button type="button" onClick={addBreakSlot} className="text-primary border border-primary/30 rounded px-3 py-2 hover:bg-primary/10 flex items-center gap-1">
+                  <span className="material-symbols-outlined text-sm">add</span>
+                  ADD BREAK
+                </button>
+              </div>
+              <div className="flex flex-col gap-3">
+                {(labPlanFormData.break_slots || []).map(slot => (
+                  <div key={slot.id} className="border border-outline/20 rounded p-3 grid grid-cols-1 xl:grid-cols-12 gap-3 bg-background">
+                    <div className="xl:col-span-2">
+                      <label className="text-outline block mb-1">Start</label>
+                      <select value={slot.start_time} onChange={(e) => updateLabPlanArrayItem('break_slots', slot.id, { start_time: e.target.value })} className="w-full bg-surface-container-low border border-outline/30 rounded p-2 text-on-surface">
+                        {SCHEDULE_TIME_OPTIONS.map(time => <option key={time} value={time}>{time}</option>)}
+                      </select>
+                    </div>
+                    <div className="xl:col-span-2">
+                      <label className="text-outline block mb-1">End</label>
+                      <select value={slot.end_time} onChange={(e) => updateLabPlanArrayItem('break_slots', slot.id, { end_time: e.target.value })} className="w-full bg-surface-container-low border border-outline/30 rounded p-2 text-on-surface">
+                        {SCHEDULE_TIME_OPTIONS.map(time => <option key={time} value={time}>{time}</option>)}
+                      </select>
+                    </div>
+                    <div className="xl:col-span-3">
+                      <label className="text-outline block mb-1">Years</label>
+                      <div className="grid grid-cols-4 gap-1">
+                        {SCHEDULE_YEARS.map(year => (
+                          <label key={year} className="flex items-center justify-center gap-1 border border-outline/20 rounded px-2 py-2 cursor-pointer">
+                            <input type="checkbox" checked={(slot.years || []).includes(year)} onChange={() => toggleLabPlanYear('break_slots', slot.id, year)} className="accent-primary" />
+                            <span>{year}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="xl:col-span-3">
+                      <label className="text-outline block mb-1">Label</label>
+                      <input value={slot.title || ''} onChange={(e) => updateLabPlanArrayItem('break_slots', slot.id, { title: e.target.value })} className="w-full bg-surface-container-low border border-outline/30 rounded p-2 text-on-surface" placeholder="Break / Lunch" />
+                    </div>
+                    <div className="xl:col-span-2 flex xl:items-end">
+                      <button type="button" onClick={() => removeLabPlanArrayItem('break_slots', slot.id)} className="w-full text-error border border-error/30 rounded px-3 py-2 hover:bg-error/10 flex items-center justify-center gap-1">
+                        <span className="material-symbols-outlined text-sm">delete</span>
+                        REMOVE
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
             <div className="lg:col-span-6">
               <label className="text-outline block mb-1">Weekly Target</label>
@@ -2134,11 +2367,33 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4 font-mono text-xs">
                       <div className="border border-outline/10 rounded p-3">
                         <div className="text-outline uppercase mb-2">Schedule</div>
-                        <p className="text-on-surface-variant whitespace-pre-wrap line-clamp-5">{plan.daily_schedule || 'No daily schedule set.'}</p>
+                        {Array.isArray(plan.schedule_slots) && plan.schedule_slots.length > 0 ? (
+                          <div className="space-y-2">
+                            {plan.schedule_slots.slice(0, 5).map(slot => (
+                              <div key={slot.id || `${slot.start_time}-${slot.end_time}`} className="border-b border-outline/10 last:border-b-0 pb-2 last:pb-0">
+                                <div className="text-primary">{slot.start_time} - {slot.end_time} / YEAR {(slot.years || []).join(', ')}</div>
+                                <div className="text-on-surface-variant">{slot.schedule_type === 'Custom input' ? slot.custom_text : slot.schedule_type}</div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-on-surface-variant whitespace-pre-wrap line-clamp-5">{plan.daily_schedule || 'No daily schedule set.'}</p>
+                        )}
                       </div>
                       <div className="border border-outline/10 rounded p-3">
-                        <div className="text-outline uppercase mb-2">Weekly Target</div>
-                        <p className="text-on-surface-variant whitespace-pre-wrap line-clamp-5">{plan.weekly_target || 'No weekly target set.'}</p>
+                        <div className="text-outline uppercase mb-2">Break / Lunch</div>
+                        {Array.isArray(plan.break_slots) && plan.break_slots.length > 0 ? (
+                          <div className="space-y-2">
+                            {plan.break_slots.slice(0, 5).map(slot => (
+                              <div key={slot.id || `${slot.start_time}-${slot.end_time}`} className="border-b border-outline/10 last:border-b-0 pb-2 last:pb-0">
+                                <div className="text-primary">{slot.start_time} - {slot.end_time} / YEAR {(slot.years || []).join(', ')}</div>
+                                <div className="text-on-surface-variant">{slot.title || 'Break / Lunch'}</div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-on-surface-variant whitespace-pre-wrap line-clamp-5">{plan.weekly_target || 'No break/lunch set.'}</p>
+                        )}
                       </div>
                     </div>
                   </article>
@@ -2336,10 +2591,10 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                 <p className="text-outline font-mono text-sm">No records found. Database is currently empty.</p>
               </div>
             ) : (
-              projects.map(proj => (
+              projects.map((proj, projectIndex) => (
                 <div key={proj.id} className="bg-background border border-outline/20 p-5 rounded flex lg:items-center justify-between flex-col lg:flex-row gap-4 hover:border-primary/50 transition-colors">
                   <div className="flex flex-col gap-1">
-                    <div className="font-mono text-xs font-bold text-primary-container bg-primary-container/10 w-fit px-2 py-0.5 rounded tracking-widest">{proj.id}</div>
+                    <div className="font-mono text-xs font-bold text-primary-container bg-primary-container/10 w-fit px-2 py-0.5 rounded tracking-widest">#{projectIndex + 1} / {proj.id}</div>
                     <div className="font-headline text-xl font-bold">{proj.title}</div>
                     <div className="font-mono text-xs text-outline">{proj.shortDesc}</div>
                   </div>
@@ -2348,7 +2603,25 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                       <div className="font-mono text-[10px] text-outline mb-0.5">STATUS</div>
                       <div className="font-mono text-xs text-on-surface uppercase">{proj.status}</div>
                     </div>
-                    <button 
+                    <div className="flex gap-1">
+                      <button
+                        onClick={() => handleMoveProject(proj.id, 'up')}
+                        disabled={projectIndex === 0}
+                        className="text-outline hover:text-primary hover:bg-primary/10 px-2 py-2 rounded transition-colors border border-outline/20 disabled:opacity-30 disabled:hover:text-outline disabled:hover:bg-transparent"
+                        title="Move project up"
+                      >
+                        <span className="material-symbols-outlined text-sm">keyboard_arrow_up</span>
+                      </button>
+                      <button
+                        onClick={() => handleMoveProject(proj.id, 'down')}
+                        disabled={projectIndex === projects.length - 1}
+                        className="text-outline hover:text-primary hover:bg-primary/10 px-2 py-2 rounded transition-colors border border-outline/20 disabled:opacity-30 disabled:hover:text-outline disabled:hover:bg-transparent"
+                        title="Move project down"
+                      >
+                        <span className="material-symbols-outlined text-sm">keyboard_arrow_down</span>
+                      </button>
+                    </div>
+                    <button
                       onClick={() => handleEditProject(proj)}
                       className="text-primary hover:bg-primary/10 px-4 py-2 rounded transition-colors font-mono text-xs flex items-center gap-2 border border-primary/20"
                     >

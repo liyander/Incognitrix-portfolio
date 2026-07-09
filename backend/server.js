@@ -326,11 +326,30 @@ async function ensureRuntimeSchema() {
                 target_week VARCHAR(20) NOT NULL,
                 daily_schedule TEXT,
                 weekly_target TEXT,
+                schedule_slots JSON,
+                break_slots JSON,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 INDEX lab_plans_week_idx (target_week)
             )
         `);
+        const [labPlanColumns] = await pool.query('SHOW COLUMNS FROM lab_plans');
+        if (!labPlanColumns.some(col => col.Field === 'schedule_slots')) {
+            await pool.query('ALTER TABLE lab_plans ADD COLUMN schedule_slots JSON');
+        }
+        if (!labPlanColumns.some(col => col.Field === 'break_slots')) {
+            await pool.query('ALTER TABLE lab_plans ADD COLUMN break_slots JSON');
+        }
+        try {
+            const [projectColumns] = await pool.query('SHOW COLUMNS FROM projects');
+            if (!projectColumns.some(col => col.Field === 'sort_order')) {
+                await pool.query('ALTER TABLE projects ADD COLUMN sort_order INT NULL');
+                await pool.query('SET @project_order := 0');
+                await pool.query('UPDATE projects SET sort_order = (@project_order := @project_order + 1) ORDER BY id');
+            }
+        } catch (projectErr) {
+            console.warn('Skipping project order migration:', projectErr.message);
+        }
         await pool.query(`
             CREATE TABLE IF NOT EXISTS dashboard_highlights (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -485,7 +504,7 @@ app.get('/api/health', (req, res) => {
 // GET all projects
 app.get('/api/projects', async (req, res) => {
     try {
-        const [rows] = await pool.query('SELECT * FROM projects');
+        const [rows] = await pool.query('SELECT * FROM projects ORDER BY COALESCE(sort_order, 999999), id');
         res.json(rows);
     } catch (err) {
         console.error(err);
@@ -509,18 +528,20 @@ app.get('/api/projects/:id', async (req, res) => {
 app.post('/api/projects', async (req, res) => {
     const { id, title, status, priority, description, shortDesc, image, stack, timeline, beneficiaries, team, usage_desc, operatives } = req.body;
     try {
+        const [orderRows] = await pool.query('SELECT COALESCE(MAX(sort_order), 0) + 1 as nextOrder FROM projects');
         const query = `
-            INSERT INTO projects 
-            (id, title, status, priority, description, shortDesc, image, stack, timeline, beneficiaries, team, usage_desc, operatives) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO projects
+            (id, title, status, priority, description, shortDesc, image, stack, timeline, beneficiaries, team, usage_desc, operatives, sort_order)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `;
         // We use JSON.stringify for arrays/objects so they are stored as JSON in MySQL
         const values = [
-            id, title, status, priority, description, shortDesc, image, 
-            JSON.stringify(stack || []), 
-            JSON.stringify(timeline || []), 
-            beneficiaries, team, usage_desc, 
-            JSON.stringify(operatives || [])
+            id, title, status, priority, description, shortDesc, image,
+            JSON.stringify(stack || []),
+            JSON.stringify(timeline || []),
+            beneficiaries, team, usage_desc,
+            JSON.stringify(operatives || []),
+            orderRows[0]?.nextOrder || 1
         ];
         
         await pool.query(query, values);
@@ -556,6 +577,50 @@ app.put('/api/projects/:id', async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Server error updating project' });
+    }
+});
+
+app.post('/api/projects/:id/move', async (req, res) => {
+    const direction = req.body?.direction === 'down' ? 'down' : 'up';
+    let connection;
+    try {
+        connection = await pool.getConnection();
+        await connection.beginTransaction();
+
+        await connection.query('SET @project_order := 0');
+        await connection.query('UPDATE projects SET sort_order = (@project_order := @project_order + 1) ORDER BY COALESCE(sort_order, 999999), id');
+
+        const [currentRows] = await connection.query('SELECT id, sort_order FROM projects WHERE id = ? LIMIT 1', [req.params.id]);
+        if (currentRows.length === 0) {
+            await connection.rollback();
+            return res.status(404).json({ error: 'Project not found' });
+        }
+
+        const current = currentRows[0];
+        const comparison = direction === 'up' ? '<' : '>';
+        const sortDirection = direction === 'up' ? 'DESC' : 'ASC';
+        const [neighborRows] = await connection.query(
+            `SELECT id, sort_order FROM projects WHERE sort_order ${comparison} ? ORDER BY sort_order ${sortDirection} LIMIT 1`,
+            [current.sort_order]
+        );
+
+        if (neighborRows.length === 0) {
+            await connection.commit();
+            return res.json({ message: 'Project already at boundary' });
+        }
+
+        const neighbor = neighborRows[0];
+        await connection.query('UPDATE projects SET sort_order = ? WHERE id = ?', [neighbor.sort_order, current.id]);
+        await connection.query('UPDATE projects SET sort_order = ? WHERE id = ?', [current.sort_order, neighbor.id]);
+
+        await connection.commit();
+        res.json({ message: 'Project order updated successfully' });
+    } catch (err) {
+        if (connection) await connection.rollback();
+        console.error(err);
+        res.status(500).json({ error: 'Server error updating project order' });
+    } finally {
+        if (connection) connection.release();
     }
 });
 
@@ -1331,6 +1396,87 @@ const getIsoWeekValue = (date) => {
     return `${target.getUTCFullYear()}-W${String(weekNumber).padStart(2, '0')}`;
 };
 
+const SCHEDULE_YEARS = ['I', 'II', 'III', 'IV'];
+const SCHEDULE_TYPES = ['Placement Training', 'Weekly Assessment', 'Custom input', 'Project Work/Lab work'];
+const SCHEDULE_START_MINUTES = (8 * 60) + 30;
+const SCHEDULE_END_MINUTES = (16 * 60) + 30;
+
+const parseTimeMinutes = (value) => {
+    const match = /^(\d{2}):(\d{2})$/.exec(String(value || ''));
+    if (!match) return null;
+    const hours = Number(match[1]);
+    const minutes = Number(match[2]);
+    if (hours > 23 || minutes > 59) return null;
+    return (hours * 60) + minutes;
+};
+
+const rangesOverlap = (leftStart, leftEnd, rightStart, rightEnd) => leftStart < rightEnd && rightStart < leftEnd;
+
+const normalizeYearList = (years) => [...new Set((Array.isArray(years) ? years : [])
+    .map(year => String(year || '').trim().toUpperCase())
+    .filter(year => SCHEDULE_YEARS.includes(year)))];
+
+const validateTimeRange = (startTime, endTime) => {
+    const startMinutes = parseTimeMinutes(startTime);
+    const endMinutes = parseTimeMinutes(endTime);
+    if (startMinutes === null || endMinutes === null) return 'Time must use HH:MM format';
+    if (startMinutes < SCHEDULE_START_MINUTES || endMinutes > SCHEDULE_END_MINUTES) return 'Schedule time must stay between 08:30 and 16:30';
+    if (startMinutes >= endMinutes) return 'Start time must be before end time';
+    return null;
+};
+
+const normalizeSchedulePayload = (scheduleSlots, breakSlots) => {
+    const normalizedBreaks = (Array.isArray(breakSlots) ? breakSlots : []).map((slot, index) => {
+        const years = normalizeYearList(slot.years);
+        const start_time = String(slot.start_time || '');
+        const end_time = String(slot.end_time || '');
+        const timeError = validateTimeRange(start_time, end_time);
+        if (timeError) throw new Error(`Break ${index + 1}: ${timeError}`);
+        if (years.length === 0) throw new Error(`Break ${index + 1}: select at least one year`);
+        return {
+            id: slot.id || `break-${Date.now()}-${index}`,
+            years,
+            start_time,
+            end_time,
+            title: slot.title || 'Break / Lunch'
+        };
+    });
+
+    const normalizedSchedule = (Array.isArray(scheduleSlots) ? scheduleSlots : []).map((slot, index) => {
+        const years = normalizeYearList(slot.years);
+        const start_time = String(slot.start_time || '');
+        const end_time = String(slot.end_time || '');
+        const schedule_type = SCHEDULE_TYPES.includes(slot.schedule_type) ? slot.schedule_type : 'Project Work/Lab work';
+        const custom_text = String(slot.custom_text || '').trim();
+        const timeError = validateTimeRange(start_time, end_time);
+        if (timeError) throw new Error(`Schedule ${index + 1}: ${timeError}`);
+        if (years.length === 0) throw new Error(`Schedule ${index + 1}: select at least one year`);
+        if (schedule_type === 'Custom input' && !custom_text) throw new Error(`Schedule ${index + 1}: custom input is required`);
+
+        const scheduleStart = parseTimeMinutes(start_time);
+        const scheduleEnd = parseTimeMinutes(end_time);
+        const overlappingBreak = normalizedBreaks.find(breakSlot => {
+            const sharedYear = years.some(year => breakSlot.years.includes(year));
+            if (!sharedYear) return false;
+            return rangesOverlap(scheduleStart, scheduleEnd, parseTimeMinutes(breakSlot.start_time), parseTimeMinutes(breakSlot.end_time));
+        });
+        if (overlappingBreak) {
+            throw new Error(`Schedule ${index + 1}: conflicts with ${overlappingBreak.title} for ${overlappingBreak.years.join(', ')}`);
+        }
+
+        return {
+            id: slot.id || `schedule-${Date.now()}-${index}`,
+            years,
+            start_time,
+            end_time,
+            schedule_type,
+            custom_text
+        };
+    });
+
+    return { scheduleSlots: normalizedSchedule, breakSlots: normalizedBreaks };
+};
+
 app.get('/api/lab-plan', async (req, res) => {
     const today = formatDateKey(new Date());
     const planDate = req.query.date || today;
@@ -1354,6 +1500,8 @@ app.get('/api/lab-plan', async (req, res) => {
             target_week: targetWeek,
             daily_schedule: dailyRows[0]?.daily_schedule || '',
             weekly_target: weeklyRows[0]?.weekly_target || dailyRows[0]?.weekly_target || '',
+            schedule_slots: parseJsonArray(dailyRows[0]?.schedule_slots),
+            break_slots: parseJsonArray(dailyRows[0]?.break_slots),
             daily_plan: dailyRows[0] || null,
             weekly_plan: weeklyRows[0] || null
         });
@@ -1371,7 +1519,11 @@ app.get('/api/admin/lab-plans', async (req, res) => {
             ORDER BY plan_date DESC, id DESC
             LIMIT 30
         `);
-        res.json(rows);
+        res.json(rows.map(row => ({
+            ...row,
+            schedule_slots: parseJsonArray(row.schedule_slots),
+            break_slots: parseJsonArray(row.break_slots)
+        })));
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Server error fetching lab plans' });
@@ -1379,25 +1531,35 @@ app.get('/api/admin/lab-plans', async (req, res) => {
 });
 
 app.post('/api/admin/lab-plans', async (req, res) => {
-    const { plan_date, target_week, daily_schedule, weekly_target } = req.body;
+    const { plan_date, target_week, daily_schedule, weekly_target, schedule_slots, break_slots } = req.body;
     if (!plan_date || !target_week) {
         return res.status(400).json({ error: 'Plan date and target week are required' });
     }
 
     try {
+        const normalized = normalizeSchedulePayload(schedule_slots || [], break_slots || []);
         await pool.query(
-            `INSERT INTO lab_plans (plan_date, target_week, daily_schedule, weekly_target)
-             VALUES (?, ?, ?, ?)
+            `INSERT INTO lab_plans (plan_date, target_week, daily_schedule, weekly_target, schedule_slots, break_slots)
+             VALUES (?, ?, ?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE
                 target_week = VALUES(target_week),
                 daily_schedule = VALUES(daily_schedule),
-                weekly_target = VALUES(weekly_target)`,
-            [plan_date, target_week, daily_schedule || '', weekly_target || '']
+                weekly_target = VALUES(weekly_target),
+                schedule_slots = VALUES(schedule_slots),
+                break_slots = VALUES(break_slots)`,
+            [
+                plan_date,
+                target_week,
+                daily_schedule || '',
+                weekly_target || '',
+                JSON.stringify(normalized.scheduleSlots),
+                JSON.stringify(normalized.breakSlots)
+            ]
         );
         res.status(201).json({ message: 'Lab plan saved successfully' });
     } catch (err) {
         console.error(err);
-        res.status(500).json({ error: 'Server error saving lab plan' });
+        res.status(400).json({ error: err.message || 'Server error saving lab plan' });
     }
 });
 

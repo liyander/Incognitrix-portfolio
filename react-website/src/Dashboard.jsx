@@ -191,6 +191,9 @@ function Dashboard({ useDatabase }) {
   const portfolioProject = projects.find(project => project.title === 'Incognitrix Portfolio');
   const scheduleLines = String(currentLabPlan?.daily_schedule || '').split('\n').map(line => line.trim()).filter(Boolean);
   const targetLines = String(currentLabPlan?.weekly_target || '').split('\n').map(line => line.trim()).filter(Boolean);
+  const scheduleSlots = Array.isArray(currentLabPlan?.schedule_slots) ? currentLabPlan.schedule_slots : [];
+  const breakSlots = Array.isArray(currentLabPlan?.break_slots) ? currentLabPlan.break_slots : [];
+  const getSlotTitle = (slot) => slot.schedule_type === 'Custom input' ? slot.custom_text : slot.schedule_type;
   const recentActivityCards = [
     ...dashboardHighlights.map(item => ({
       type: item.highlight_type || 'info',
@@ -330,7 +333,7 @@ function Dashboard({ useDatabase }) {
         </div>
       </div>
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-        {(scheduleLines.length > 0 || targetLines.length > 0) && (
+        {(scheduleSlots.length > 0 || breakSlots.length > 0 || scheduleLines.length > 0 || targetLines.length > 0) && (
           <section className="xl:col-span-12 bg-surface-container-low p-6 rounded border ghost-border relative overflow-hidden">
             <div className="absolute top-0 right-0 text-9xl material-symbols-outlined text-primary/5 select-none pointer-events-none">event_note</div>
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-5">
@@ -350,7 +353,19 @@ function Dashboard({ useDatabase }) {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <div className="bg-background/70 border border-outline/20 rounded p-4">
                 <div className="font-mono text-[10px] uppercase tracking-widest text-outline mb-3">Today</div>
-                {scheduleLines.length > 0 ? (
+                {scheduleSlots.length > 0 ? (
+                  <div className="space-y-2">
+                    {scheduleSlots.map(slot => (
+                      <div key={slot.id || `${slot.start_time}-${slot.end_time}-${getSlotTitle(slot)}`} className="border border-outline/10 rounded p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="font-mono text-xs text-primary">{slot.start_time} - {slot.end_time}</span>
+                          <span className="font-mono text-[10px] text-outline">YEAR {(slot.years || []).join(', ') || 'N/A'}</span>
+                        </div>
+                        <div className="font-headline text-sm font-bold text-on-surface mt-2">{getSlotTitle(slot)}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : scheduleLines.length > 0 ? (
                   <div className="space-y-2">
                     {scheduleLines.map((line, index) => (
                       <div key={`${line}-${index}`} className="flex gap-3 border-b border-outline/10 last:border-b-0 pb-2 last:pb-0">
@@ -364,8 +379,20 @@ function Dashboard({ useDatabase }) {
                 )}
               </div>
               <div className="bg-background/70 border border-outline/20 rounded p-4">
-                <div className="font-mono text-[10px] uppercase tracking-widest text-outline mb-3">This Week</div>
-                {targetLines.length > 0 ? (
+                <div className="font-mono text-[10px] uppercase tracking-widest text-outline mb-3">{breakSlots.length > 0 ? 'Break / Lunch' : 'This Week'}</div>
+                {breakSlots.length > 0 ? (
+                  <div className="space-y-2">
+                    {breakSlots.map(slot => (
+                      <div key={slot.id || `${slot.start_time}-${slot.end_time}-${slot.title}`} className="border border-outline/10 rounded p-3 bg-surface-container-low">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="font-mono text-xs text-primary">{slot.start_time} - {slot.end_time}</span>
+                          <span className="font-mono text-[10px] text-outline">YEAR {(slot.years || []).join(', ') || 'N/A'}</span>
+                        </div>
+                        <div className="font-headline text-sm font-bold text-on-surface mt-2">{slot.title || 'Break / Lunch'}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : targetLines.length > 0 ? (
                   <div className="space-y-2">
                     {targetLines.map((line, index) => (
                       <div key={`${line}-${index}`} className="flex gap-3 border-b border-outline/10 last:border-b-0 pb-2 last:pb-0">
