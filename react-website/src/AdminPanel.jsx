@@ -77,18 +77,6 @@ const getYearOptions = (selectedYear) => {
 const SCHEDULE_YEARS = ['I', 'II', 'III', 'IV'];
 const SCHEDULE_TYPES = ['Placement Training', 'Weekly Assessment', 'Custom input', 'Project Work/Lab work'];
 
-const buildScheduleTimeOptions = () => {
-  const options = [];
-  for (let minutes = (8 * 60) + 30; minutes <= (16 * 60) + 30; minutes += 15) {
-    const hour = Math.floor(minutes / 60);
-    const minute = minutes % 60;
-    options.push(`${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`);
-  }
-  return options;
-};
-
-const SCHEDULE_TIME_OPTIONS = buildScheduleTimeOptions();
-
 const createScheduleSlot = () => ({
   id: `schedule-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
   years: [],
@@ -2229,15 +2217,11 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                     <div key={slot.id} className={`border rounded p-3 grid grid-cols-1 xl:grid-cols-12 gap-3 ${conflict ? 'border-error/50 bg-error/5' : 'border-outline/20 bg-background'}`}>
                       <div className="xl:col-span-2">
                         <label className="text-outline block mb-1">Start</label>
-                        <select value={slot.start_time} onChange={(e) => updateLabPlanArrayItem('schedule_slots', slot.id, { start_time: e.target.value })} className="w-full bg-surface-container-low border border-outline/30 rounded p-2 text-on-surface">
-                          {SCHEDULE_TIME_OPTIONS.map(time => <option key={time} value={time}>{time}</option>)}
-                        </select>
+                        <input type="time" min="08:30" max="16:30" value={slot.start_time} onChange={(e) => updateLabPlanArrayItem('schedule_slots', slot.id, { start_time: e.target.value })} className="w-full bg-surface-container-low border border-outline/30 rounded p-2 text-on-surface" />
                       </div>
                       <div className="xl:col-span-2">
                         <label className="text-outline block mb-1">End</label>
-                        <select value={slot.end_time} onChange={(e) => updateLabPlanArrayItem('schedule_slots', slot.id, { end_time: e.target.value })} className="w-full bg-surface-container-low border border-outline/30 rounded p-2 text-on-surface">
-                          {SCHEDULE_TIME_OPTIONS.map(time => <option key={time} value={time}>{time}</option>)}
-                        </select>
+                        <input type="time" min="08:30" max="16:30" value={slot.end_time} onChange={(e) => updateLabPlanArrayItem('schedule_slots', slot.id, { end_time: e.target.value })} className="w-full bg-surface-container-low border border-outline/30 rounded p-2 text-on-surface" />
                       </div>
                       <div className="xl:col-span-3">
                         <label className="text-outline block mb-1">Years</label>
@@ -2291,15 +2275,11 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                   <div key={slot.id} className="border border-outline/20 rounded p-3 grid grid-cols-1 xl:grid-cols-12 gap-3 bg-background">
                     <div className="xl:col-span-2">
                       <label className="text-outline block mb-1">Start</label>
-                      <select value={slot.start_time} onChange={(e) => updateLabPlanArrayItem('break_slots', slot.id, { start_time: e.target.value })} className="w-full bg-surface-container-low border border-outline/30 rounded p-2 text-on-surface">
-                        {SCHEDULE_TIME_OPTIONS.map(time => <option key={time} value={time}>{time}</option>)}
-                      </select>
+                      <input type="time" min="08:30" max="16:30" value={slot.start_time} onChange={(e) => updateLabPlanArrayItem('break_slots', slot.id, { start_time: e.target.value })} className="w-full bg-surface-container-low border border-outline/30 rounded p-2 text-on-surface" />
                     </div>
                     <div className="xl:col-span-2">
                       <label className="text-outline block mb-1">End</label>
-                      <select value={slot.end_time} onChange={(e) => updateLabPlanArrayItem('break_slots', slot.id, { end_time: e.target.value })} className="w-full bg-surface-container-low border border-outline/30 rounded p-2 text-on-surface">
-                        {SCHEDULE_TIME_OPTIONS.map(time => <option key={time} value={time}>{time}</option>)}
-                      </select>
+                      <input type="time" min="08:30" max="16:30" value={slot.end_time} onChange={(e) => updateLabPlanArrayItem('break_slots', slot.id, { end_time: e.target.value })} className="w-full bg-surface-container-low border border-outline/30 rounded p-2 text-on-surface" />
                     </div>
                     <div className="xl:col-span-3">
                       <label className="text-outline block mb-1">Years</label>
