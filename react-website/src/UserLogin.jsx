@@ -1,9 +1,11 @@
 ﻿import React, { useState } from "react";
 
 function UserLogin({ onLogin }) {
+  const [attendanceMode, setAttendanceMode] = useState("lab");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [otp, setOtp] = useState("");
+  const [guestForm, setGuestForm] = useState({ guest_name: "", department: "", purpose: "" });
   
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -12,6 +14,21 @@ function UserLogin({ onLogin }) {
   const [isFirstTime, setIsFirstTime] = useState(false);
   const [qrCode, setQrCode] = useState("");
   const [attendanceMessage, setAttendanceMessage] = useState("");
+  const [attendanceDetails, setAttendanceDetails] = useState(null);
+
+  const formatDateTime = (value) => {
+    if (!value) return "";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value).slice(0, 19).replace("T", " ");
+    return date.toLocaleString("en-IN", {
+      year: "numeric",
+      month: "short",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true
+    });
+  };
 
   const login = async () => {
     const response = await fetch("/api/user/login", {
@@ -57,6 +74,11 @@ function UserLogin({ onLogin }) {
       const data = await response.json();
       if (data.success) {
         setAttendanceMessage(data.message);
+        setAttendanceDetails({
+          type: "lab",
+          entry_at: data.entry_at,
+          exit_at: data.exit_at
+        });
         setStep(3); // Go to success screen
       } else {
         setError(data.message || "Invalid OTP code");
@@ -66,6 +88,47 @@ function UserLogin({ onLogin }) {
       console.error(err);
     }
     setLoading(false);
+  };
+
+  const handleGuestSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError("");
+
+    try {
+      const response = await fetch("/api/guest/attendance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(guestForm),
+      });
+      const data = await response.json();
+      if (data.success) {
+        setAttendanceMessage(data.message);
+        setAttendanceDetails({
+          type: "guest",
+          name: data.guest?.guest_name || guestForm.guest_name,
+          department: data.guest?.department || guestForm.department,
+          purpose: data.guest?.purpose || guestForm.purpose,
+          entry_at: data.guest?.entry_at,
+          exit_at: data.guest?.exit_at
+        });
+        setStep(3);
+      } else {
+        setError(data.message || "Guest attendance failed");
+      }
+    } catch (err) {
+      setError("Cannot connect to server.");
+      console.error(err);
+    }
+    setLoading(false);
+  };
+
+  const resetAttendanceFlow = () => {
+    setStep(1);
+    setOtp("");
+    setError("");
+    setAttendanceMessage("");
+    setAttendanceDetails(null);
   };
 
   return (
@@ -81,52 +144,116 @@ function UserLogin({ onLogin }) {
 
         <div className="mb-8">
           <span className="material-symbols-outlined text-primary text-5xl mb-4 jarvis-text">
-            {step === 1 ? 'fingerprint' : step === 2 ? 'verified_user' : 'how_to_reg'}
+            {attendanceMode === "guest" && step === 1 ? 'badge' : step === 1 ? 'fingerprint' : step === 2 ? 'verified_user' : 'how_to_reg'}
           </span>
           <h2 className="font-headline text-2xl font-bold text-on-surface uppercase tracking-widest jarvis-text">
-            {step === 1 ? 'Operative Login' : step === 2 ? '2FA Verification' : 'Attendance'}
+            {step === 1 ? 'Attendance Log' : step === 2 ? '2FA Verification' : 'Attendance'}
           </h2>
           <p className="font-body text-xs text-primary/70 tracking-widest uppercase mt-2">
-            {step === 1 ? 'AUTHORIZATION REQUIRED' : step === 2 ? 'ENTER AUTHENTICATOR CODE' : 'STATUS CONFIRMED'}
+            {step === 1 ? 'ENTRY / EXIT CONTROL' : step === 2 ? 'ENTER AUTHENTICATOR CODE' : 'STATUS CONFIRMED'}
           </p>
         </div>
 
         {error && <div className="p-3 mb-6 bg-error/10 border border-error/50 text-error font-mono text-xs uppercase tracking-widest animate-pulse">{error}</div>}
         
         {step === 1 ? (
-          <form onSubmit={handleLoginSubmit} className="flex flex-col gap-6">
-            <div className="flex flex-col text-left">
-              <label className="font-mono text-xs text-outline tracking-widest uppercase mb-2">Username</label>
-              <input
-                type="text"
-                required
-                className="bg-surface-lowest border border-outline-variant rounded p-3 text-on-surface font-mono placeholder:text-outline/50 focus:border-primary focus:outline-none transition-colors"
-                placeholder="ENTER USER_ID"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-              />
-            </div>
-            
-            <div className="flex flex-col text-left">
-              <label className="font-mono text-xs text-outline tracking-widest uppercase mb-2">Password</label>
-              <input
-                type="password"
-                required
-                className="bg-surface-lowest border border-outline-variant rounded p-3 text-on-surface font-mono focus:border-primary focus:outline-none transition-colors"
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
+          <>
+            <div className="grid grid-cols-2 gap-2 mb-6 font-mono text-xs uppercase tracking-widest">
+              <button
+                type="button"
+                onClick={() => setAttendanceMode("lab")}
+                className={`p-3 rounded border transition-colors ${attendanceMode === "lab" ? "border-primary bg-primary/15 text-primary" : "border-outline-variant text-outline hover:text-primary"}`}
+              >
+                Lab User
+              </button>
+              <button
+                type="button"
+                onClick={() => setAttendanceMode("guest")}
+                className={`p-3 rounded border transition-colors ${attendanceMode === "guest" ? "border-primary bg-primary/15 text-primary" : "border-outline-variant text-outline hover:text-primary"}`}
+              >
+                Guest
+              </button>
             </div>
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="mt-4 bg-primary-container text-on-primary-fixed font-headline font-bold text-sm tracking-widest uppercase py-4 rounded hover:bg-primary transition-colors disabled:opacity-50"
-            >
-              {loading ? 'AUTHENTICATING...' : 'LOGIN WITH 2FA'}
-            </button>
-          </form>
+            {attendanceMode === "lab" ? (
+              <form onSubmit={handleLoginSubmit} className="flex flex-col gap-6">
+                <div className="flex flex-col text-left">
+                  <label className="font-mono text-xs text-outline tracking-widest uppercase mb-2">Username</label>
+                  <input
+                    type="text"
+                    required
+                    className="bg-surface-lowest border border-outline-variant rounded p-3 text-on-surface font-mono placeholder:text-outline/50 focus:border-primary focus:outline-none transition-colors"
+                    placeholder="ENTER USER_ID"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                  />
+                </div>
+
+                <div className="flex flex-col text-left">
+                  <label className="font-mono text-xs text-outline tracking-widest uppercase mb-2">Password</label>
+                  <input
+                    type="password"
+                    required
+                    className="bg-surface-lowest border border-outline-variant rounded p-3 text-on-surface font-mono focus:border-primary focus:outline-none transition-colors"
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="mt-4 bg-primary-container text-on-primary-fixed font-headline font-bold text-sm tracking-widest uppercase py-4 rounded hover:bg-primary transition-colors disabled:opacity-50"
+                >
+                  {loading ? 'AUTHENTICATING...' : 'LAB ENTRY / EXIT'}
+                </button>
+              </form>
+            ) : (
+              <form onSubmit={handleGuestSubmit} className="flex flex-col gap-6">
+                <div className="flex flex-col text-left">
+                  <label className="font-mono text-xs text-outline tracking-widest uppercase mb-2">Guest Name</label>
+                  <input
+                    type="text"
+                    required
+                    className="bg-surface-lowest border border-outline-variant rounded p-3 text-on-surface font-mono placeholder:text-outline/50 focus:border-primary focus:outline-none transition-colors"
+                    placeholder="ENTER NAME"
+                    value={guestForm.guest_name}
+                    onChange={(e) => setGuestForm({ ...guestForm, guest_name: e.target.value })}
+                  />
+                </div>
+                <div className="flex flex-col text-left">
+                  <label className="font-mono text-xs text-outline tracking-widest uppercase mb-2">Department</label>
+                  <input
+                    type="text"
+                    required
+                    className="bg-surface-lowest border border-outline-variant rounded p-3 text-on-surface font-mono placeholder:text-outline/50 focus:border-primary focus:outline-none transition-colors"
+                    placeholder="ENTER DEPARTMENT"
+                    value={guestForm.department}
+                    onChange={(e) => setGuestForm({ ...guestForm, department: e.target.value })}
+                  />
+                </div>
+                <div className="flex flex-col text-left">
+                  <label className="font-mono text-xs text-outline tracking-widest uppercase mb-2">Purpose</label>
+                  <textarea
+                    required
+                    rows={3}
+                    className="bg-surface-lowest border border-outline-variant rounded p-3 text-on-surface font-mono placeholder:text-outline/50 focus:border-primary focus:outline-none transition-colors resize-none"
+                    placeholder="VISIT PURPOSE"
+                    value={guestForm.purpose}
+                    onChange={(e) => setGuestForm({ ...guestForm, purpose: e.target.value })}
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="mt-4 bg-primary-container text-on-primary-fixed font-headline font-bold text-sm tracking-widest uppercase py-4 rounded hover:bg-primary transition-colors disabled:opacity-50"
+                >
+                  {loading ? 'RECORDING...' : 'GUEST ENTRY / EXIT'}
+                </button>
+              </form>
+            )}
+          </>
         ) : step === 2 ? (
           <form onSubmit={handle2FASubmit} className="flex flex-col gap-6">
             {isFirstTime && (
@@ -161,11 +288,24 @@ function UserLogin({ onLogin }) {
             <div className="p-4 bg-primary/10 border border-primary/50 text-primary font-mono text-sm uppercase tracking-widest">
               {attendanceMessage}
             </div>
+            {attendanceDetails && (
+              <div className="w-full border border-outline-variant bg-surface-lowest/70 rounded p-4 text-left font-mono text-xs text-outline uppercase tracking-widest space-y-2">
+                {attendanceDetails.type === "guest" && (
+                  <>
+                    <div><span className="text-primary">Guest:</span> {attendanceDetails.name}</div>
+                    <div><span className="text-primary">Department:</span> {attendanceDetails.department}</div>
+                    <div><span className="text-primary">Purpose:</span> {attendanceDetails.purpose}</div>
+                  </>
+                )}
+                {attendanceDetails.entry_at && <div><span className="text-primary">Entry:</span> {formatDateTime(attendanceDetails.entry_at)}</div>}
+                {attendanceDetails.exit_at && <div><span className="text-primary">Exit:</span> {formatDateTime(attendanceDetails.exit_at)}</div>}
+              </div>
+            )}
             <button
-              onClick={() => onLogin(username)} // Return to portal
+              onClick={() => attendanceDetails?.type === "guest" ? resetAttendanceFlow() : onLogin(username)} // Return to portal
               className="mt-4 bg-surface-lowest text-outline border border-outline-variant font-headline font-bold text-sm tracking-widest uppercase py-2 px-6 rounded hover:text-primary hover:border-primary transition-colors"
             >
-              RETURN TO DIRECTIVES
+              {attendanceDetails?.type === "guest" ? 'RECORD ANOTHER' : 'RETURN TO DIRECTIVES'}
             </button>
           </div>
         )}

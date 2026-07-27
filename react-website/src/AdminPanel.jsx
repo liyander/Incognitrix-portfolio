@@ -109,6 +109,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
   const [labPlans, setLabPlans] = useState([]);
   const [dashboardHighlights, setDashboardHighlights] = useState([]);
   const [attendanceStats, setAttendanceStats] = useState([]);
+  const [guestAttendance, setGuestAttendance] = useState([]);
   const [attendanceRequests, setAttendanceRequests] = useState([]);
   const [attendanceHolidays, setAttendanceHolidays] = useState([]);
   const [isResettingAttendance, setIsResettingAttendance] = useState(false);
@@ -233,6 +234,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
     fetchLabPlans();
     fetchDashboardHighlights();
     fetchAttendance();
+    fetchGuestAttendance();
     fetchAttendanceRequests();
     fetchAttendanceHolidays();
     fetchAttendanceSettings();
@@ -277,6 +279,16 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
       }
     } catch (err) {
       console.error('Failed to fetch attendance settings', err);
+    }
+  };
+
+  const fetchGuestAttendance = async () => {
+    try {
+      const response = await fetch('/api/admin/guest-attendance');
+      const data = await readJsonResponse(response);
+      setGuestAttendance(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('Failed to fetch guest attendance', err);
     }
   };
 
@@ -760,7 +772,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
         return;
       }
 
-      await Promise.all([fetchAttendance(), fetchAttendanceRequests()]);
+      await Promise.all([fetchAttendance(), fetchGuestAttendance(), fetchAttendanceRequests()]);
       showAlert('All attendance records, requests, and OD entries were cleared.');
     } catch (err) {
       console.error('Failed to reset attendance', err);
@@ -2082,6 +2094,47 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                 </div>
               </div>
             )}
+
+            <div className="mb-6 bg-background border border-outline/20 rounded p-4">
+              <div className="flex items-center justify-between gap-3 mb-4">
+                <div>
+                  <div className="font-mono text-xs text-primary uppercase tracking-widest">Guest Attendance Log</div>
+                  <p className="font-mono text-[11px] text-outline mt-1">Visitor entry and exit timestamps.</p>
+                </div>
+                <span className="font-mono text-xs text-outline">{guestAttendance.length} RECENT</span>
+              </div>
+              {guestAttendance.length === 0 ? (
+                <div className="border border-outline/10 rounded p-4 font-mono text-xs text-outline">No guest attendance records found.</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left font-mono text-xs">
+                    <thead>
+                      <tr className="border-b border-outline/20 text-outline uppercase">
+                        <th className="pb-2 px-3">Guest</th>
+                        <th className="pb-2 px-3">Department</th>
+                        <th className="pb-2 px-3">Purpose</th>
+                        <th className="pb-2 px-3">Date</th>
+                        <th className="pb-2 px-3">Entry</th>
+                        <th className="pb-2 px-3">Exit</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {guestAttendance.slice(0, 20).map(guest => (
+                        <tr key={guest.id} className="border-b border-outline/10">
+                          <td className="py-3 px-3 text-on-surface uppercase">{guest.guest_name}</td>
+                          <td className="py-3 px-3 text-outline">{guest.department}</td>
+                          <td className="py-3 px-3 text-outline max-w-xs truncate">{guest.purpose}</td>
+                          <td className="py-3 px-3 text-primary">{String(guest.attendance_date || '').slice(0, 10)}</td>
+                          <td className="py-3 px-3 text-outline">{formatDateTimeForDisplay(guest.entry_at)}</td>
+                          <td className="py-3 px-3 text-outline">{guest.exit_at ? formatDateTimeForDisplay(guest.exit_at) : 'OPEN'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
             <div className="overflow-x-auto">
               <table className="w-full text-left font-mono text-sm">
                 <thead>
@@ -2092,6 +2145,8 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                     <th className="pb-3 px-4 text-center">Total Attendances</th>
                     <th className="pb-3 px-4 text-center">OD</th>
                     <th className="pb-3 px-4 text-center">Working Days</th>
+                    <th className="pb-3 px-4 text-center">Today Entry</th>
+                    <th className="pb-3 px-4 text-center">Today Exit</th>
                     <th className="pb-3 px-4 text-right">Attendance %</th>
                     <th className="pb-3 px-4 text-right">Actions</th>
                   </tr>
@@ -2099,7 +2154,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                 <tbody>
                   {attendanceStats.length === 0 ? (
                     <tr>
-                      <td colSpan="8" className="text-center py-6 text-outline">No attendance records found in the database.</td>
+                      <td colSpan="10" className="text-center py-6 text-outline">No attendance records found in the database.</td>
                     </tr>
                   ) : (
                     attendanceStats.map(stat => (
@@ -2110,6 +2165,8 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                         <td className="py-4 px-4 text-center">{stat.attended_days}</td>
                         <td className="py-4 px-4 text-center">{stat.od_days || 0}</td>
                         <td className="py-4 px-4 text-center">{stat.working_days || 0}</td>
+                        <td className="py-4 px-4 text-center text-xs text-outline">{stat.today_entry_at ? formatDateTimeForDisplay(stat.today_entry_at) : '-'}</td>
+                        <td className="py-4 px-4 text-center text-xs text-outline">{stat.today_exit_at ? formatDateTimeForDisplay(stat.today_exit_at) : '-'}</td>
                         <td className="py-4 px-4 text-right">
                           <span className={`px-2 py-1 rounded border ${stat.percentage > 80 ? 'bg-primary-container/10 border-primary-container/30 text-primary-container' : stat.percentage > 50 ? 'bg-outline/10 border-outline/30 text-outline' : 'bg-error/10 border-error/30 text-error'}`}>
                             {stat.percentage}%
