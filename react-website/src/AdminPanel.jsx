@@ -840,6 +840,8 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
 
   const formatTimeForDisplay = (value) => {
     if (!value) return '';
+    if (/^\d{2}:\d{2}/.test(String(value))) return String(value).slice(0, 5);
+    if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(String(value))) return String(value).slice(11, 16);
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return String(value).slice(11, 16) || String(value);
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -847,6 +849,8 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
 
   const getTimeInputValue = (value) => {
     if (!value) return '';
+    if (/^\d{2}:\d{2}/.test(String(value))) return String(value).slice(0, 5);
+    if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(String(value))) return String(value).slice(11, 16);
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return String(value).slice(11, 16);
     return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
@@ -1499,8 +1503,8 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
       attendance_date: day.date,
       status: ['present', 'absent', 'od'].includes(day.status) ? day.status : 'absent',
       reason: day.status === 'od' ? day.label : '',
-      entry_time: getTimeInputValue(day.entry_at),
-      exit_time: getTimeInputValue(day.exit_at)
+      entry_time: day.entry_time || getTimeInputValue(day.entry_at),
+      exit_time: day.exit_time || getTimeInputValue(day.exit_at)
     });
   };
 
@@ -3451,7 +3455,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                           <button
                             type="button"
                             key={day.date}
-                            title={`${day.date} - ${day.label}${day.entry_at ? ` | In: ${formatTimeForDisplay(day.entry_at)}` : ''}${day.exit_at ? ` | Exit: ${formatTimeForDisplay(day.exit_at)}` : ''}`}
+                            title={`${day.date} - ${day.label}${day.entry_time || day.entry_at ? ` | In: ${formatTimeForDisplay(day.entry_time || day.entry_at)}` : ''}${day.exit_time || day.exit_at ? ` | Exit: ${formatTimeForDisplay(day.exit_time || day.exit_at)}` : ''}`}
                             onClick={() => handleStartAttendanceEdit(day)}
                             disabled={day.date > getCurrentDateValue() || selectedIndividual.attendance_calendar_source === 'no_user_match'}
                             className={`min-h-24 rounded border p-2 flex flex-col justify-between text-left transition-colors enabled:hover:ring-1 enabled:hover:ring-primary/60 disabled:cursor-default ${getCalendarStatusClass(day.status)}`}
@@ -3464,8 +3468,8 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                               <div className="truncate">{day.status === 'present' ? 'Present' : day.status === 'absent' ? 'Absent' : day.status === 'od' ? 'OD' : day.status === 'upcoming' ? 'Next' : 'Off'}</div>
                               {day.status === 'present' && (
                                 <div className="mt-1 space-y-0.5 leading-tight text-[8px]">
-                                  <div className="truncate">IN {day.entry_at ? formatTimeForDisplay(day.entry_at) : '-'}</div>
-                                  <div className="truncate">OUT {day.exit_at ? formatTimeForDisplay(day.exit_at) : '-'}</div>
+                                  <div className="truncate">IN {day.entry_time || day.entry_at ? formatTimeForDisplay(day.entry_time || day.entry_at) : '-'}</div>
+                                  <div className="truncate">OUT {day.exit_time || day.exit_at ? formatTimeForDisplay(day.exit_time || day.exit_at) : '-'}</div>
                                 </div>
                               )}
                             </div>

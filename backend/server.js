@@ -14,6 +14,7 @@ const port = 1337;
 const execFileAsync = promisify(execFile);
 const ATTENDANCE_TIME_ZONE = 'Asia/Kolkata';
 const DEFAULT_ATTENDANCE_CUTOFF = '08:35';
+const ATTENDANCE_NOW_SQL = 'UTC_TIMESTAMP() + INTERVAL 330 MINUTE';
 const ADMIN_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 const adminSessions = new Map();
 
@@ -138,6 +139,7 @@ const pool = mysql.createPool({
     user: process.env.DB_USER || 'CTF',
     password: process.env.DB_PASSWORD || 'root',
     database: process.env.DB_NAME || 'incognitrix_db_new',
+    dateStrings: true,
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0
@@ -178,8 +180,8 @@ async function ensureRuntimeSchema() {
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 user_id VARCHAR(255) NOT NULL,
                 attendance_date DATE NOT NULL,
-                entry_at TIMESTAMP NULL,
-                exit_at TIMESTAMP NULL,
+                entry_at DATETIME NULL,
+                exit_at DATETIME NULL,
                 UNIQUE KEY org_emp_date (user_id, attendance_date)
             )
         `);
@@ -219,12 +221,14 @@ async function ensureRuntimeSchema() {
             await pool.query('ALTER TABLE attendance MODIFY attendance_date DATE NOT NULL');
         }
         if (!attendanceColumns.some(col => col.Field === 'entry_at')) {
-            await pool.query('ALTER TABLE attendance ADD COLUMN entry_at TIMESTAMP NULL AFTER attendance_date');
+            await pool.query('ALTER TABLE attendance ADD COLUMN entry_at DATETIME NULL AFTER attendance_date');
             await pool.query("UPDATE attendance SET entry_at = CONCAT(attendance_date, ' 08:30:00') WHERE entry_at IS NULL");
         }
         if (!attendanceColumns.some(col => col.Field === 'exit_at')) {
-            await pool.query('ALTER TABLE attendance ADD COLUMN exit_at TIMESTAMP NULL AFTER entry_at');
+            await pool.query('ALTER TABLE attendance ADD COLUMN exit_at DATETIME NULL AFTER entry_at');
         }
+        await pool.query('ALTER TABLE attendance MODIFY entry_at DATETIME NULL');
+        await pool.query('ALTER TABLE attendance MODIFY exit_at DATETIME NULL');
         await pool.query("UPDATE attendance SET entry_at = CONCAT(attendance_date, ' 08:30:00') WHERE entry_at IS NULL");
 
         await pool.query(`
@@ -234,11 +238,13 @@ async function ensureRuntimeSchema() {
                 department VARCHAR(255) NOT NULL,
                 purpose TEXT NOT NULL,
                 attendance_date DATE NOT NULL,
-                entry_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                exit_at TIMESTAMP NULL,
+                entry_at DATETIME NULL,
+                exit_at DATETIME NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         `);
+        await pool.query('ALTER TABLE guest_attendance MODIFY entry_at DATETIME NULL');
+        await pool.query('ALTER TABLE guest_attendance MODIFY exit_at DATETIME NULL');
 
         const [userColumns] = await pool.query('SHOW COLUMNS FROM users');
         if (!userColumns.some(col => col.Field === 'twofa_secret')) {
@@ -492,7 +498,7 @@ async function submitAttendanceForReview(userId, username) {
             const attendance = existingAttendance[0];
             if (!attendance.exit_at) {
                 await pool.query(
-                    'UPDATE attendance SET exit_at = CURRENT_TIMESTAMP WHERE id = ? AND exit_at IS NULL',
+                    `UPDATE attendance SET exit_at = ${ATTENDANCE_NOW_SQL} WHERE id = ? AND exit_at IS NULL`,
                     [attendance.id]
                 );
                 const [updatedRows] = await pool.query(
@@ -507,7 +513,7 @@ async function submitAttendanceForReview(userId, username) {
                     exitRecorded: true,
                     approvalStatus: 'approved',
                     entry_at: updatedRows[0]?.entry_at || attendance.entry_at,
-                    exit_at: updatedRows[0]?.exit_at || new Date()
+                    exit_at: updatedRows[0]?.exit_at || null
                 };
             }
             return {
@@ -536,8 +542,8 @@ async function submitAttendanceForReview(userId, username) {
 
         await pool.query(
             `INSERT INTO attendance_requests (user_id, attendance_date, status, requested_at, reviewed_at, reviewed_by, review_note)
-             VALUES (?, ?, 'pending', CURRENT_TIMESTAMP, NULL, NULL, NULL)
-             ON DUPLICATE KEY UPDATE status = 'pending', requested_at = CURRENT_TIMESTAMP, reviewed_at = NULL, reviewed_by = NULL, review_note = NULL`,
+             VALUES (?, ?, 'pending', ${ATTENDANCE_NOW_SQL}, NULL, NULL, NULL)
+             ON DUPLICATE KEY UPDATE status = 'pending', requested_at = ${ATTENDANCE_NOW_SQL}, reviewed_at = NULL, reviewed_by = NULL, review_note = NULL`,
             [userId, today]
         );
         return { success: true, message: "Attendance submitted for admin approval.", username, attendanceRecorded: false, approvalStatus: 'pending' };
@@ -567,7 +573,7 @@ async function recordGuestAttendance({ guestName, department, purpose }) {
 
     if (openRows.length > 0) {
         await pool.query(
-            'UPDATE guest_attendance SET exit_at = CURRENT_TIMESTAMP WHERE id = ? AND exit_at IS NULL',
+            `UPDATE guest_attendance SET exit_at = ${ATTENDANCE_NOW_SQL} WHERE id = ? AND exit_at IS NULL`,
             [openRows[0].id]
         );
         const [updatedRows] = await pool.query('SELECT * FROM guest_attendance WHERE id = ? LIMIT 1', [openRows[0].id]);
@@ -581,7 +587,7 @@ async function recordGuestAttendance({ guestName, department, purpose }) {
 
     const [result] = await pool.query(
         `INSERT INTO guest_attendance (guest_name, department, purpose, attendance_date, entry_at)
-         VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+         VALUES (?, ?, ?, ?, ${ATTENDANCE_NOW_SQL})`,
         [trimmedGuestName, trimmedDepartment, trimmedPurpose, today]
     );
     const [createdRows] = await pool.query('SELECT * FROM guest_attendance WHERE id = ? LIMIT 1', [result.insertId]);
@@ -858,7 +864,14 @@ app.get('/api/individuals/:id', async (req, res) => {
         const attendanceUserId = individual.attendance_user_id ? String(individual.attendance_user_id) : null;
 
         const [attendanceRows] = attendanceUserId ? await pool.query(
-            'SELECT attendance_date, entry_at, exit_at FROM attendance WHERE user_id = ? AND attendance_date BETWEEN ? AND ?',
+            `SELECT
+                attendance_date,
+                entry_at,
+                exit_at,
+                DATE_FORMAT(entry_at, '%H:%i') AS entry_time,
+                DATE_FORMAT(exit_at, '%H:%i') AS exit_time
+             FROM attendance
+             WHERE user_id = ? AND attendance_date BETWEEN ? AND ?`,
             [attendanceUserId, monthStart, statusEnd]
         ) : [[]];
         const [odRows] = attendanceUserId ? await pool.query(
@@ -868,7 +881,9 @@ app.get('/api/individuals/:id', async (req, res) => {
 
         const attendanceByDate = new Map(attendanceRows.map(row => [toDateKey(row.attendance_date), {
             entry_at: row.entry_at,
-            exit_at: row.exit_at
+            exit_at: row.exit_at,
+            entry_time: row.entry_time,
+            exit_time: row.exit_time
         }]));
         const odByDate = new Map(odRows.map(row => [toDateKey(row.od_date), row.reason || 'On duty']));
         const attendanceCalendar = calendarDates.map(dateKey => {
@@ -897,7 +912,9 @@ app.get('/api/individuals/:id', async (req, res) => {
                 status,
                 label,
                 entry_at: attendanceTimes.entry_at || null,
-                exit_at: attendanceTimes.exit_at || null
+                exit_at: attendanceTimes.exit_at || null,
+                entry_time: attendanceTimes.entry_time || null,
+                exit_time: attendanceTimes.exit_time || null
             };
         });
 
@@ -2668,7 +2685,13 @@ app.get('/api/admin/attendance-requests', async (req, res) => {
 app.post('/api/admin/attendance-requests/:id/approve', requireAdmin, async (req, res) => {
     const reviewer = req.body.reviewed_by || req.body.admin_username || 'admin';
     try {
-        const [rows] = await pool.query('SELECT * FROM attendance_requests WHERE id = ? LIMIT 1', [req.params.id]);
+        const [rows] = await pool.query(
+            `SELECT ar.*, DATE_FORMAT(ar.requested_at, '%Y-%m-%d %H:%i:%s') AS requested_at_local
+             FROM attendance_requests ar
+             WHERE ar.id = ?
+             LIMIT 1`,
+            [req.params.id]
+        );
         if (rows.length === 0) return res.status(404).json({ error: 'Attendance request not found' });
 
         const request = rows[0];
@@ -2676,11 +2699,11 @@ app.post('/api/admin/attendance-requests/:id/approve', requireAdmin, async (req,
             `INSERT INTO attendance (user_id, attendance_date, entry_at)
              VALUES (?, ?, ?)
              ON DUPLICATE KEY UPDATE attendance_date = VALUES(attendance_date), entry_at = COALESCE(entry_at, VALUES(entry_at))`,
-            [request.user_id, toDateKey(request.attendance_date), request.requested_at]
+            [request.user_id, toDateKey(request.attendance_date), request.requested_at_local || request.requested_at]
         );
         await pool.query(
             `UPDATE attendance_requests
-             SET status = 'approved', reviewed_at = CURRENT_TIMESTAMP, reviewed_by = ?, review_note = NULL
+             SET status = 'approved', reviewed_at = ${ATTENDANCE_NOW_SQL}, reviewed_by = ?, review_note = NULL
              WHERE id = ?`,
             [reviewer, req.params.id]
         );
@@ -2697,7 +2720,7 @@ app.post('/api/admin/attendance-requests/:id/reject', requireAdmin, async (req, 
     try {
         const [result] = await pool.query(
             `UPDATE attendance_requests
-             SET status = 'rejected', reviewed_at = CURRENT_TIMESTAMP, reviewed_by = ?, review_note = ?
+             SET status = 'rejected', reviewed_at = ${ATTENDANCE_NOW_SQL}, reviewed_by = ?, review_note = ?
              WHERE id = ?`,
             [reviewer, note, req.params.id]
         );
