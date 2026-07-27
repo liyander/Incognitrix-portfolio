@@ -858,7 +858,7 @@ app.get('/api/individuals/:id', async (req, res) => {
         const attendanceUserId = individual.attendance_user_id ? String(individual.attendance_user_id) : null;
 
         const [attendanceRows] = attendanceUserId ? await pool.query(
-            'SELECT attendance_date FROM attendance WHERE user_id = ? AND attendance_date BETWEEN ? AND ?',
+            'SELECT attendance_date, entry_at, exit_at FROM attendance WHERE user_id = ? AND attendance_date BETWEEN ? AND ?',
             [attendanceUserId, monthStart, statusEnd]
         ) : [[]];
         const [odRows] = attendanceUserId ? await pool.query(
@@ -866,17 +866,21 @@ app.get('/api/individuals/:id', async (req, res) => {
             [attendanceUserId, monthStart, statusEnd]
         ) : [[]];
 
-        const presentDates = new Set(attendanceRows.map(row => toDateKey(row.attendance_date)));
+        const attendanceByDate = new Map(attendanceRows.map(row => [toDateKey(row.attendance_date), {
+            entry_at: row.entry_at,
+            exit_at: row.exit_at
+        }]));
         const odByDate = new Map(odRows.map(row => [toDateKey(row.od_date), row.reason || 'On duty']));
         const attendanceCalendar = calendarDates.map(dateKey => {
             const date = new Date(`${dateKey}T00:00:00`);
             let status = 'off';
             let label = 'Not counted';
+            const attendanceTimes = attendanceByDate.get(dateKey) || {};
 
             if (dateKey > statusEnd || requestedMonth > todayKey.slice(0, 7)) {
                 status = 'upcoming';
                 label = 'Upcoming';
-            } else if (presentDates.has(dateKey)) {
+            } else if (attendanceByDate.has(dateKey)) {
                 status = 'present';
                 label = 'Present';
             } else if (odByDate.has(dateKey)) {
@@ -891,7 +895,9 @@ app.get('/api/individuals/:id', async (req, res) => {
                 date: dateKey,
                 day: date.toLocaleDateString('en-US', { weekday: 'short' }),
                 status,
-                label
+                label,
+                entry_at: attendanceTimes.entry_at || null,
+                exit_at: attendanceTimes.exit_at || null
             };
         });
 
@@ -1065,10 +1071,18 @@ app.put('/api/admin/individuals/:id/attendance', requireAdmin, async (req, res) 
     const attendanceDate = String(req.body?.attendance_date || '');
     const status = String(req.body?.status || '').toLowerCase();
     const reason = String(req.body?.reason || '').trim();
+    const entryTime = String(req.body?.entry_time || '').trim();
+    const exitTime = String(req.body?.exit_time || '').trim();
     const today = formatDateKey(new Date());
 
     if (!/^\d{4}-\d{2}-\d{2}$/.test(attendanceDate) || !['present', 'absent', 'od'].includes(status)) {
         return res.status(400).json({ error: 'A valid date and attendance status are required' });
+    }
+    if (entryTime && !/^\d{2}:\d{2}$/.test(entryTime)) {
+        return res.status(400).json({ error: 'Entry time must use HH:MM format' });
+    }
+    if (exitTime && !/^\d{2}:\d{2}$/.test(exitTime)) {
+        return res.status(400).json({ error: 'Exit time must use HH:MM format' });
     }
     if (attendanceDate > today) {
         return res.status(400).json({ error: 'Future attendance cannot be edited' });
@@ -1100,11 +1114,13 @@ app.put('/api/admin/individuals/:id/attendance', requireAdmin, async (req, res) 
         );
 
         if (status === 'present') {
+            const entryAt = `${attendanceDate} ${entryTime || '08:30'}:00`;
+            const exitAt = exitTime ? `${attendanceDate} ${exitTime}:00` : null;
             await connection.query('DELETE FROM attendance_od WHERE user_id = ? AND od_date = ?', [userId, attendanceDate]);
             await connection.query(
-                `INSERT INTO attendance (user_id, attendance_date, entry_at) VALUES (?, ?, CONCAT(?, ' 08:30:00'))
-                 ON DUPLICATE KEY UPDATE attendance_date = VALUES(attendance_date), entry_at = COALESCE(entry_at, VALUES(entry_at))`,
-                [userId, attendanceDate, attendanceDate]
+                `INSERT INTO attendance (user_id, attendance_date, entry_at, exit_at) VALUES (?, ?, ?, ?)
+                 ON DUPLICATE KEY UPDATE attendance_date = VALUES(attendance_date), entry_at = VALUES(entry_at), exit_at = VALUES(exit_at)`,
+                [userId, attendanceDate, entryAt, exitAt]
             );
         } else if (status === 'od') {
             await connection.query('DELETE FROM attendance WHERE user_id = ? AND attendance_date = ?', [userId, attendanceDate]);

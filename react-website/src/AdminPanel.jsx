@@ -836,6 +836,20 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
     return date.toLocaleString();
   };
 
+  const formatTimeForDisplay = (value) => {
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value).slice(11, 16) || String(value);
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+
+  const getTimeInputValue = (value) => {
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value).slice(11, 16);
+    return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+  };
+
   const handleCtfSubmit = async (e) => {
     e.preventDefault();
 
@@ -1442,7 +1456,9 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
     setAttendanceEdit({
       attendance_date: day.date,
       status: ['present', 'absent', 'od'].includes(day.status) ? day.status : 'absent',
-      reason: day.status === 'od' ? day.label : ''
+      reason: day.status === 'od' ? day.label : '',
+      entry_time: getTimeInputValue(day.entry_at),
+      exit_time: getTimeInputValue(day.exit_at)
     });
   };
 
@@ -3279,7 +3295,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
 
                   <div className="p-5">
                     {attendanceEdit && (
-                      <form onSubmit={handleAttendanceEditSubmit} className="mb-5 bg-surface-container-low border border-primary/20 rounded p-4 grid grid-cols-1 md:grid-cols-[1fr_1fr_2fr_auto] gap-3 items-end">
+                      <form onSubmit={handleAttendanceEditSubmit} className="mb-5 bg-surface-container-low border border-primary/20 rounded p-4 grid grid-cols-1 md:grid-cols-6 gap-3 items-end">
                         <div>
                           <label className="text-outline block mb-1 font-mono text-[10px] uppercase">Date</label>
                           <input value={attendanceEdit.attendance_date} readOnly className="w-full bg-background border border-outline/20 rounded p-2 text-on-surface font-mono text-xs" />
@@ -3295,6 +3311,26 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                             <option value="absent">Absent</option>
                             <option value="od">OD</option>
                           </select>
+                        </div>
+                        <div>
+                          <label className="text-outline block mb-1 font-mono text-[10px] uppercase">In Time</label>
+                          <input
+                            type="time"
+                            value={attendanceEdit.entry_time || ''}
+                            onChange={(e) => setAttendanceEdit({ ...attendanceEdit, entry_time: e.target.value })}
+                            disabled={attendanceEdit.status !== 'present'}
+                            className="w-full bg-background border border-outline/30 rounded p-2 text-on-surface focus:border-primary focus:outline-none font-mono text-xs disabled:opacity-40"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-outline block mb-1 font-mono text-[10px] uppercase">Exit Time</label>
+                          <input
+                            type="time"
+                            value={attendanceEdit.exit_time || ''}
+                            onChange={(e) => setAttendanceEdit({ ...attendanceEdit, exit_time: e.target.value })}
+                            disabled={attendanceEdit.status !== 'present'}
+                            className="w-full bg-background border border-outline/30 rounded p-2 text-on-surface focus:border-primary focus:outline-none font-mono text-xs disabled:opacity-40"
+                          />
                         </div>
                         <div>
                           <label className="text-outline block mb-1 font-mono text-[10px] uppercase">OD Reason</label>
@@ -3333,17 +3369,23 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                           <button
                             type="button"
                             key={day.date}
-                            title={`${day.date} - ${day.label}`}
+                            title={`${day.date} - ${day.label}${day.entry_at ? ` | In: ${formatTimeForDisplay(day.entry_at)}` : ''}${day.exit_at ? ` | Exit: ${formatTimeForDisplay(day.exit_at)}` : ''}`}
                             onClick={() => handleStartAttendanceEdit(day)}
                             disabled={day.date > getCurrentDateValue() || selectedIndividual.attendance_calendar_source === 'no_user_match'}
-                            className={`aspect-square min-h-14 rounded border p-2 flex flex-col justify-between text-left transition-colors enabled:hover:ring-1 enabled:hover:ring-primary/60 disabled:cursor-default ${getCalendarStatusClass(day.status)}`}
+                            className={`min-h-24 rounded border p-2 flex flex-col justify-between text-left transition-colors enabled:hover:ring-1 enabled:hover:ring-primary/60 disabled:cursor-default ${getCalendarStatusClass(day.status)}`}
                           >
                             <div className="flex items-center justify-between gap-1">
                               <span className="font-mono text-sm font-bold">{String(Number(day.date.slice(8, 10)))}</span>
                               <span className="font-mono text-[9px] uppercase opacity-80">{day.day}</span>
                             </div>
-                            <div className="font-mono text-[9px] uppercase truncate">
-                              {day.status === 'present' ? 'Present' : day.status === 'absent' ? 'Absent' : day.status === 'od' ? 'OD' : day.status === 'upcoming' ? 'Next' : 'Off'}
+                            <div className="font-mono text-[9px] uppercase">
+                              <div className="truncate">{day.status === 'present' ? 'Present' : day.status === 'absent' ? 'Absent' : day.status === 'od' ? 'OD' : day.status === 'upcoming' ? 'Next' : 'Off'}</div>
+                              {day.status === 'present' && (
+                                <div className="mt-1 space-y-0.5 leading-tight text-[8px]">
+                                  <div className="truncate">IN {day.entry_at ? formatTimeForDisplay(day.entry_at) : '-'}</div>
+                                  <div className="truncate">OUT {day.exit_at ? formatTimeForDisplay(day.exit_at) : '-'}</div>
+                                </div>
+                              )}
                             </div>
                           </button>
                         ))}
