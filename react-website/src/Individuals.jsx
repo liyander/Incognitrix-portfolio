@@ -15,8 +15,7 @@ function Individuals({ onSelectIndividual, useDatabase }) {
   });
   const getCurrentDayWork = (ind) => {
     if (ind.current_day_work) return ind.current_day_work;
-    if (ind.daily_work) return ind.daily_work;
-    return '';
+    return ind.current_work_label || 'Not updated';
   };
 
   useEffect(() => {
@@ -169,7 +168,7 @@ function Individuals({ onSelectIndividual, useDatabase }) {
                              <span className="text-xs text-primary opacity-60 uppercase mr-2">Team:</span> {ind.team_name || 'UNASSIGNED'}
                           </p>
                           <p className="font-body text-on-surface-variant text-sm line-clamp-3">
-                             <span className="text-xs text-primary opacity-60 uppercase mr-2">Current Work:</span> {getCurrentDayWork(ind) || 'No work update recorded for today.'}
+                             <span className="text-xs text-primary opacity-60 uppercase mr-2">Current Work:</span> {getCurrentDayWork(ind)}
                           </p>
                         </div>
                       </div>
@@ -224,7 +223,7 @@ function Individuals({ onSelectIndividual, useDatabase }) {
                              <span className="opacity-60 uppercase mr-1">Team:</span> {ind.team_name || 'UNASSIGNED'}
                           </p>
                           <p className="font-body text-on-surface-variant text-xs line-clamp-3">
-                             <span className="opacity-60 uppercase mr-1">Current Work:</span> {getCurrentDayWork(ind) || 'No work update recorded for today.'}
+                             <span className="opacity-60 uppercase mr-1">Current Work:</span> {getCurrentDayWork(ind)}
                           </p>
                       </div>
                       <div className="mt-5 pt-3 border-t border-outline-variant/10 flex justify-between items-center cursor-pointer group-hover:border-primary/30" onClick={() => onSelectIndividual(ind.id)}>

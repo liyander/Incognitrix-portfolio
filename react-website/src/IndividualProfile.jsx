@@ -102,7 +102,7 @@ function IndividualProfile({ individualId, projects, onNavigateToProject, onNavi
   let research_work = [];
   try { research_work = typeof individual.research_work === 'string' ? JSON.parse(individual.research_work) : individual.research_work || []; } catch(e){}
   const workTimeline = Array.isArray(individual.work_timeline) ? individual.work_timeline : [];
-  const currentDayWork = individual.current_day_work || individual.daily_work || '';
+  const currentDayWork = individual.current_day_work || individual.current_work_label || 'Not updated';
   const formatWorkDate = (value) => {
     if (!value) return 'NO_DATE';
     const date = new Date(value);
@@ -211,7 +211,7 @@ function IndividualProfile({ individualId, projects, onNavigateToProject, onNavi
                   <div className="mb-8 bg-surface-container-low border border-outline-variant/20 p-4">
                     <p className="font-label text-[10px] text-primary tracking-widest uppercase mb-2">Current Day Work</p>
                     <p className="font-body text-sm text-on-surface-variant leading-relaxed">
-                      {currentDayWork || 'No work update recorded for today.'}
+                      {currentDayWork}
                     </p>
                   </div>
                 </div>

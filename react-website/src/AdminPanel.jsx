@@ -412,9 +412,12 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
 
   const getCurrentDayWork = (ind) => {
     if (ind.current_day_work) return ind.current_day_work;
-    if (ind.daily_work) return ind.daily_work;
     return '';
   };
+
+  const getCurrentWorkDisplay = (ind) => (
+    ind.current_day_work || ind.current_work_label || 'Not updated'
+  );
 
   const getFilteredIndividuals = () => {
     const query = individualSearchQuery.trim().toLowerCase();
@@ -427,7 +430,8 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
       ind.year_of_study,
       ind.studying_year ? `year ${ind.studying_year}` : '',
       ind.team_name,
-      getCurrentDayWork(ind)
+      getCurrentDayWork(ind),
+      ind.current_work_label
     ].some(value => String(value || '').toLowerCase().includes(query)));
   };
 
@@ -474,6 +478,23 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
         return 'border-outline/20 bg-surface-container text-outline';
       default:
         return 'border-outline/10 bg-background/60 text-outline/60';
+    }
+  };
+
+  const getWorkUpdateStatusClass = (status) => {
+    switch (status) {
+      case 'updated':
+        return 'border-emerald-400/40 bg-emerald-500/10 text-emerald-200';
+      case 'not_updated':
+        return 'border-outline/30 bg-outline/10 text-outline';
+      case 'absent':
+        return 'border-red-400/40 bg-red-500/10 text-red-200';
+      case 'od':
+        return 'border-yellow-300/50 bg-yellow-400/10 text-yellow-100';
+      case 'holiday':
+        return 'border-primary/30 bg-primary/10 text-primary';
+      default:
+        return 'border-outline/20 bg-background text-outline';
     }
   };
 
@@ -3094,7 +3115,12 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                     <div className="font-headline text-xl font-bold">{ind.name}</div>
                     <div className="font-mono text-xs text-outline">Team: {ind.team_name || 'UNASSIGNED'}</div>
                     <div className="font-mono text-xs text-on-surface-variant mt-2 max-w-3xl">
-                      <span className="text-primary uppercase">Current Day Work:</span> {getCurrentDayWork(ind) || 'No work update recorded for today.'}
+                      <span className="text-primary uppercase">Current Day Work:</span> {getCurrentWorkDisplay(ind)}
+                      {ind.current_work_status && (
+                        <span className={`ml-2 text-[10px] uppercase border rounded px-2 py-0.5 ${getWorkUpdateStatusClass(ind.current_work_status)}`}>
+                          {ind.current_work_status.replace('_', ' ')}
+                        </span>
+                      )}
                     </div>
                     </div>
                   </div>
@@ -3185,6 +3211,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
             const detailCertificates = normalizeDetailItems(selectedIndividual.certificates);
             const detailResearch = normalizeDetailItems(selectedIndividual.research_work);
             const workTimeline = Array.isArray(selectedIndividual.work_timeline) ? selectedIndividual.work_timeline : [];
+            const workUpdateCalendar = Array.isArray(selectedIndividual.work_update_calendar) ? selectedIndividual.work_update_calendar : workTimeline;
             const attendanceCalendar = Array.isArray(selectedIndividual.attendance_calendar) ? selectedIndividual.attendance_calendar : [];
             const firstCalendarDate = attendanceCalendar[0]?.date ? new Date(`${attendanceCalendar[0].date}T00:00:00`) : null;
             const leadingCalendarBlanks = firstCalendarDate && !Number.isNaN(firstCalendarDate.getTime()) ? firstCalendarDate.getDay() : 0;
@@ -3233,6 +3260,14 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
 
                   <div className="border-t border-outline/10 pt-5">
                     <label className="text-outline block mb-2 font-mono text-xs uppercase">Current Day Work</label>
+                    <div className="mb-2 font-mono text-xs text-on-surface-variant">
+                      <span className="text-primary uppercase">Status:</span> {getCurrentWorkDisplay(selectedIndividual)}
+                      {selectedIndividual.current_work_status && (
+                        <span className={`ml-2 text-[10px] uppercase border rounded px-2 py-0.5 ${getWorkUpdateStatusClass(selectedIndividual.current_work_status)}`}>
+                          {selectedIndividual.current_work_status.replace('_', ' ')}
+                        </span>
+                      )}
+                    </div>
                     <textarea
                       value={getCurrentDayWork(selectedIndividual)}
                       onChange={(e) => handleSelectedDailyWorkChange(e.target.value)}
@@ -3273,7 +3308,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                       <span className="material-symbols-outlined text-[18px] text-primary">terminal</span>
                       <span className="font-mono text-xs text-on-surface-variant tracking-widest uppercase">WORK_TIMELINE :: OP-{selectedIndividual.id}</span>
                     </div>
-                    <span className="font-mono text-[10px] text-outline">{workTimeline.length} LOGS</span>
+                    <span className="font-mono text-[10px] text-outline">{workUpdateCalendar.length} DAYS</span>
                   </div>
 
                   <form onSubmit={handleWorkLogEditSubmit} className="border-b border-outline/20 bg-background p-5 grid grid-cols-1 md:grid-cols-[160px_1fr_auto] gap-3 items-end">
@@ -3310,26 +3345,29 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                   </form>
 
                   <div className="flex-1 p-5 overflow-y-auto terminal-scroll font-mono text-xs leading-relaxed text-on-surface-variant flex flex-col gap-4">
-                    {workTimeline.length === 0 ? (
+                    {workUpdateCalendar.length === 0 ? (
                       <div className="flex gap-4">
                         <span className="text-outline shrink-0">NO_LOG</span>
-                        <span>&gt; No daily work history stored yet.</span>
+                        <span>&gt; No work update data available for this month.</span>
                       </div>
                     ) : (
-                      workTimeline.map(log => (
-                        <div key={log.id || `${log.work_date}-${log.work_text}`} className="border-l-2 border-primary/30 pl-4 pb-4">
+                      workUpdateCalendar.map(log => (
+                        <div key={log.id || `${log.work_date}-${log.status}`} className="border-l-2 border-primary/30 pl-4 pb-4">
                           <div className="flex flex-wrap items-center gap-3 mb-2">
                             <span className="text-primary">{formatWorkDate(log.work_date)}</span>
-                            <span className="text-outline text-[10px]">UPDATED {formatWorkDate(log.updated_at)}</span>
-                            <button
-                              type="button"
-                              onClick={() => handleLoadWorkLogEdit(log)}
-                              className="text-primary hover:text-on-surface transition-colors text-[10px] border border-primary/20 rounded px-2 py-1"
-                            >
-                              EDIT
-                            </button>
+                            <span className={`text-[10px] uppercase border rounded px-2 py-1 ${getWorkUpdateStatusClass(log.status)}`}>{log.label}</span>
+                            {log.updated_at && <span className="text-outline text-[10px]">UPDATED {formatWorkDate(log.updated_at)}</span>}
+                            {log.editable && (
+                              <button
+                                type="button"
+                                onClick={() => handleLoadWorkLogEdit(log)}
+                                className="text-primary hover:text-on-surface transition-colors text-[10px] border border-primary/20 rounded px-2 py-1"
+                              >
+                                EDIT
+                              </button>
+                            )}
                           </div>
-                          <p className="text-on-surface-variant whitespace-pre-wrap">&gt; {log.work_text}</p>
+                          <p className="text-on-surface-variant whitespace-pre-wrap">&gt; {log.work_text || log.label}</p>
                         </div>
                       ))
                     )}

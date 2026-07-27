@@ -809,17 +809,56 @@ app.delete('/api/teams/:id', async (req, res) => {
 // -----------------------------------------
 app.get('/api/individuals', async (req, res) => {
     try {
+        const todayKey = formatDateKey(new Date());
         const [rows] = await pool.query(`
-            SELECT i.*, t.name as team_name, wl.work_text as current_day_work
+            SELECT
+                i.*,
+                t.name as team_name,
+                wl.work_text as current_day_work,
+                u.id as attendance_user_id,
+                a.id as today_attendance_id,
+                od.id as today_od_id,
+                od.reason as today_od_reason,
+                h.id as today_holiday_id,
+                h.title as today_holiday_title
             FROM individuals i 
             LEFT JOIN teams t ON i.team_id = t.id
-            LEFT JOIN individual_work_logs wl ON wl.individual_id = i.id AND wl.work_date = CURRENT_DATE
+            LEFT JOIN individual_work_logs wl ON wl.individual_id = i.id AND wl.work_date = ?
+            LEFT JOIN users u ON u.id = i.user_id
+            LEFT JOIN attendance a ON a.user_id = u.id AND a.attendance_date = ?
+            LEFT JOIN attendance_od od ON od.user_id = u.id AND od.od_date = ?
+            LEFT JOIN attendance_holidays h ON h.holiday_date = ?
             ORDER BY CASE
                 WHEN LOWER(REPLACE(REPLACE(i.name, '.', ''), ' ', '')) IN ('liyandarrishwanthl', 'liyanderrishwanthl') THEN 0
                 ELSE 1
             END, i.name
-        `);
-        res.json(rows);
+        `, [todayKey, todayKey, todayKey, todayKey]);
+        const today = new Date(`${todayKey}T00:00:00`);
+        const isHolidayToday = rows.some(row => row.today_holiday_id) || today.getDay() === 0 || isFirstOrThirdSaturday(today);
+        res.json(rows.map(row => {
+            let currentWorkStatus = 'not_updated';
+            let currentWorkLabel = 'Not updated';
+
+            if (isHolidayToday) {
+                currentWorkStatus = 'holiday';
+                currentWorkLabel = row.today_holiday_title || 'Holiday';
+            } else if (row.today_od_id) {
+                currentWorkStatus = 'od';
+                currentWorkLabel = row.today_od_reason || 'OD';
+            } else if (row.attendance_user_id && !row.today_attendance_id) {
+                currentWorkStatus = 'absent';
+                currentWorkLabel = 'Absent';
+            } else if (row.current_day_work) {
+                currentWorkStatus = 'updated';
+                currentWorkLabel = row.current_day_work;
+            }
+
+            return {
+                ...row,
+                current_work_status: currentWorkStatus,
+                current_work_label: currentWorkLabel
+            };
+        }));
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Server error fetching individuals' });
@@ -863,6 +902,17 @@ app.get('/api/individuals/:id', async (req, res) => {
         const individual = rows[0];
         const attendanceUserId = individual.attendance_user_id ? String(individual.attendance_user_id) : null;
 
+        const [monthWorkRows] = await pool.query(`
+            SELECT id, work_date, work_text, created_at, updated_at
+            FROM individual_work_logs
+            WHERE individual_id = ? AND work_date BETWEEN ? AND ?
+            ORDER BY work_date DESC, id DESC
+        `, [req.params.id, monthStart, statusEnd]);
+        const [holidayRows] = await pool.query(
+            'SELECT holiday_date, title, holiday_type FROM attendance_holidays WHERE holiday_date BETWEEN ? AND ?',
+            [monthStart, statusEnd]
+        );
+
         const [attendanceRows] = attendanceUserId ? await pool.query(
             `SELECT
                 attendance_date,
@@ -885,6 +935,8 @@ app.get('/api/individuals/:id', async (req, res) => {
             entry_time: row.entry_time,
             exit_time: row.exit_time
         }]));
+        const workByDate = new Map(monthWorkRows.map(row => [toDateKey(row.work_date), row]));
+        const holidayByDate = new Map(holidayRows.map(row => [toDateKey(row.holiday_date), row]));
         const odByDate = new Map(odRows.map(row => [toDateKey(row.od_date), row.reason || 'On duty']));
         const attendanceCalendar = calendarDates.map(dateKey => {
             const date = new Date(`${dateKey}T00:00:00`);
@@ -917,6 +969,48 @@ app.get('/api/individuals/:id', async (req, res) => {
                 exit_time: attendanceTimes.exit_time || null
             };
         });
+        const workUpdateCalendar = calendarDates
+            .filter(dateKey => dateKey <= statusEnd && requestedMonth <= todayKey.slice(0, 7))
+            .map(dateKey => {
+                const date = new Date(`${dateKey}T00:00:00`);
+                const workLog = workByDate.get(dateKey);
+                const holiday = holidayByDate.get(dateKey);
+                const isWeeklyOff = date.getDay() === 0 || isFirstOrThirdSaturday(date);
+                let status = 'not_updated';
+                let label = 'Not updated';
+                let workText = '';
+
+                if (holiday) {
+                    status = 'holiday';
+                    label = holiday.title || 'Holiday';
+                } else if (isWeeklyOff) {
+                    status = 'holiday';
+                    label = 'Holiday';
+                } else if (odByDate.has(dateKey)) {
+                    status = 'od';
+                    label = odByDate.get(dateKey) || 'OD';
+                } else if (workingDateSet.has(dateKey) && !attendanceByDate.has(dateKey)) {
+                    status = 'absent';
+                    label = 'Absent';
+                } else if (workLog?.work_text) {
+                    status = 'updated';
+                    label = 'Updated';
+                    workText = workLog.work_text;
+                }
+
+                return {
+                    id: workLog?.id || `status-${dateKey}`,
+                    work_date: dateKey,
+                    work_text: workText,
+                    status,
+                    label,
+                    created_at: workLog?.created_at || null,
+                    updated_at: workLog?.updated_at || null,
+                    editable: !['holiday', 'absent', 'od'].includes(status)
+                };
+            })
+            .sort((a, b) => String(b.work_date).localeCompare(String(a.work_date)));
+        const currentWorkUpdate = workUpdateCalendar.find(day => day.work_date === todayKey) || null;
 
         const [achievementRows] = await pool.query('SELECT * FROM achievements ORDER BY date DESC, id DESC');
         const linkedAchievements = achievementRows.filter(achievement => {
@@ -926,7 +1020,10 @@ app.get('/api/individuals/:id', async (req, res) => {
 
         res.json({
             ...individual,
+            current_work_status: currentWorkUpdate?.status || (individual.current_day_work ? 'updated' : 'not_updated'),
+            current_work_label: currentWorkUpdate?.work_text || currentWorkUpdate?.label || individual.current_day_work || 'Not updated',
             work_timeline: workTimeline,
+            work_update_calendar: workUpdateCalendar,
             linked_achievements: linkedAchievements,
             attendance_calendar: attendanceCalendar,
             attendance_calendar_month: requestedMonth,
