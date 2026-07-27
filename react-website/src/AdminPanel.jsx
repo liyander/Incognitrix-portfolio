@@ -166,6 +166,8 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
   const [selectedIndividualIds, setSelectedIndividualIds] = useState([]);
   const [bulkWorkForm, setBulkWorkForm] = useState({ work_date: getCurrentDateValue(), work_text: '' });
   const [isAssigningBulkWork, setIsAssigningBulkWork] = useState(false);
+  const [workLogEdit, setWorkLogEdit] = useState({ work_date: getCurrentDateValue(), work_text: '' });
+  const [isSavingWorkLogEdit, setIsSavingWorkLogEdit] = useState(false);
   const [attendanceEdit, setAttendanceEdit] = useState(null);
   const [isSavingAttendanceEdit, setIsSavingAttendanceEdit] = useState(false);
 
@@ -1301,6 +1303,10 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
 
       const data = await response.json();
       setSelectedIndividual(data);
+      setWorkLogEdit({
+        work_date: getCurrentDateValue(),
+        work_text: getCurrentDayWork(data)
+      });
     } catch (err) {
       console.error('Failed to load individual details', err);
       showAlert('Failed to load individual details. Check console.');
@@ -1391,6 +1397,42 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
     } catch (err) {
       console.error('Failed to update daily work', err);
       showAlert('Failed to update daily work. Check console.');
+    }
+  };
+
+  const handleLoadWorkLogEdit = (log) => {
+    setWorkLogEdit({
+      work_date: String(log.work_date || '').slice(0, 10),
+      work_text: log.work_text || ''
+    });
+  };
+
+  const handleWorkLogEditSubmit = async (e) => {
+    e.preventDefault();
+    if (!selectedIndividual?.id) return;
+
+    setIsSavingWorkLogEdit(true);
+    try {
+      const response = await fetch(`/api/admin/individuals/${selectedIndividual.id}/work-log`, {
+        method: 'PUT',
+        headers: getAdminHeaders(true),
+        body: JSON.stringify(workLogEdit)
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        showAlert(data.error || 'Failed to update work log.', 'error');
+        return;
+      }
+
+      const individualToRefresh = selectedIndividual;
+      await fetchIndividuals();
+      await handleViewIndividual(individualToRefresh, selectedAttendanceMonth);
+      showAlert(`Work updated for ${data.work_date}.`);
+    } catch (err) {
+      console.error('Failed to update work log', err);
+      showAlert('Failed to update work log. Check console.', 'error');
+    } finally {
+      setIsSavingWorkLogEdit(false);
     }
   };
 
@@ -3230,6 +3272,39 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                     <span className="font-mono text-[10px] text-outline">{workTimeline.length} LOGS</span>
                   </div>
 
+                  <form onSubmit={handleWorkLogEditSubmit} className="border-b border-outline/20 bg-background p-5 grid grid-cols-1 md:grid-cols-[160px_1fr_auto] gap-3 items-end">
+                    <div>
+                      <label className="text-outline block mb-1 font-mono text-[10px] uppercase">Work Date</label>
+                      <input
+                        type="date"
+                        value={workLogEdit.work_date}
+                        max={getCurrentDateValue()}
+                        onChange={(e) => setWorkLogEdit({ ...workLogEdit, work_date: e.target.value })}
+                        required
+                        className="w-full bg-surface-container-low border border-outline/30 rounded p-2 text-on-surface focus:border-primary focus:outline-none font-mono text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-outline block mb-1 font-mono text-[10px] uppercase">Work Details</label>
+                      <textarea
+                        value={workLogEdit.work_text}
+                        onChange={(e) => setWorkLogEdit({ ...workLogEdit, work_text: e.target.value })}
+                        rows="3"
+                        required
+                        className="w-full bg-surface-container-low border border-outline/30 rounded p-2 text-on-surface focus:border-primary focus:outline-none transition-colors font-mono text-xs resize-y"
+                        placeholder="Edit or add work for selected date..."
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={isSavingWorkLogEdit}
+                      className="text-primary hover:bg-primary/10 px-4 py-2 rounded transition-colors font-mono text-xs flex items-center justify-center gap-2 border border-primary/20 disabled:opacity-50"
+                    >
+                      <span className="material-symbols-outlined text-sm">save</span>
+                      {isSavingWorkLogEdit ? 'SAVING...' : 'SAVE DAY'}
+                    </button>
+                  </form>
+
                   <div className="flex-1 p-5 overflow-y-auto terminal-scroll font-mono text-xs leading-relaxed text-on-surface-variant flex flex-col gap-4">
                     {workTimeline.length === 0 ? (
                       <div className="flex gap-4">
@@ -3242,6 +3317,13 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
                           <div className="flex flex-wrap items-center gap-3 mb-2">
                             <span className="text-primary">{formatWorkDate(log.work_date)}</span>
                             <span className="text-outline text-[10px]">UPDATED {formatWorkDate(log.updated_at)}</span>
+                            <button
+                              type="button"
+                              onClick={() => handleLoadWorkLogEdit(log)}
+                              className="text-primary hover:text-on-surface transition-colors text-[10px] border border-primary/20 rounded px-2 py-1"
+                            >
+                              EDIT
+                            </button>
                           </div>
                           <p className="text-on-surface-variant whitespace-pre-wrap">&gt; {log.work_text}</p>
                         </div>

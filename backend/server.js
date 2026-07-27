@@ -1014,6 +1014,42 @@ app.patch('/api/individuals/:id/daily-work', async (req, res) => {
     }
 });
 
+app.put('/api/admin/individuals/:id/work-log', requireAdmin, async (req, res) => {
+    const workDate = String(req.body?.work_date || '');
+    const workText = String(req.body?.work_text || '').trim();
+    const today = formatDateKey(new Date());
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(workDate) || !workText) {
+        return res.status(400).json({ error: 'A valid work date and work details are required' });
+    }
+    if (workDate > today) {
+        return res.status(400).json({ error: 'Future work cannot be edited' });
+    }
+
+    try {
+        const [individualRows] = await pool.query('SELECT id FROM individuals WHERE id = ? LIMIT 1', [req.params.id]);
+        if (individualRows.length === 0) return res.status(404).json({ error: 'Individual not found' });
+
+        await pool.query(
+            `INSERT INTO individual_work_logs (individual_id, work_date, work_text)
+             VALUES (?, ?, ?)
+             ON DUPLICATE KEY UPDATE work_text = VALUES(work_text)`,
+            [req.params.id, workDate, workText]
+        );
+        await pool.query(
+            `UPDATE individuals
+             SET daily_work = CASE WHEN ? = CURRENT_DATE THEN ? ELSE daily_work END
+             WHERE id = ?`,
+            [workDate, workText, req.params.id]
+        );
+
+        res.json({ message: 'Work log updated successfully', work_date: workDate });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error updating work log' });
+    }
+});
+
 app.post('/api/admin/individuals/bulk-work', async (req, res) => {
     const individualIds = [...new Set((Array.isArray(req.body?.individual_ids) ? req.body.individual_ids : [])
         .map(id => Number(id))
