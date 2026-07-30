@@ -17,6 +17,7 @@ const DEFAULT_ATTENDANCE_CUTOFF = '08:35';
 const ATTENDANCE_NOW_SQL = 'UTC_TIMESTAMP() + INTERVAL 330 MINUTE';
 const ADMIN_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 const adminSessions = new Map();
+const studentSessions = new Map();
 
 const requireAdmin = (req, res, next) => {
     const authorization = String(req.headers.authorization || '');
@@ -29,6 +30,20 @@ const requireAdmin = (req, res, next) => {
     }
 
     req.admin = session;
+    next();
+};
+
+const requireStudent = (req, res, next) => {
+    const authorization = String(req.headers.authorization || '');
+    const token = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
+    const session = studentSessions.get(token);
+
+    if (!session || session.expiresAt <= Date.now()) {
+        if (token) studentSessions.delete(token);
+        return res.status(401).json({ error: 'Student authentication required' });
+    }
+
+    req.student = session;
     next();
 };
 
@@ -2961,6 +2976,182 @@ app.get('/api/admin/attendance/weekly-export', async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Server error exporting weekly attendance' });
+    }
+});
+
+app.post('/api/student/login', async (req, res) => {
+    const { username, password } = req.body;
+    if (!username || !password) {
+        return res.status(400).json({ success: false, message: 'Username and password are required' });
+    }
+
+    try {
+        const [rows] = await pool.query('SELECT id, username, password FROM users WHERE username = ? LIMIT 1', [username]);
+        if (rows.length === 0) return res.status(401).json({ success: false, message: 'Invalid credentials' });
+
+        const user = rows[0];
+        const match = await bcrypt.compare(password, user.password);
+        if (!match) return res.status(401).json({ success: false, message: 'Invalid credentials' });
+
+        const [individualRows] = await pool.query('SELECT id FROM individuals WHERE user_id = ? LIMIT 1', [user.id]);
+        if (individualRows.length === 0) {
+            return res.status(403).json({ success: false, message: 'No student profile is linked to this login.' });
+        }
+
+        const token = crypto.randomBytes(32).toString('hex');
+        studentSessions.set(token, {
+            userId: user.id,
+            username: user.username,
+            individualId: individualRows[0].id,
+            expiresAt: Date.now() + ADMIN_SESSION_TTL_MS
+        });
+
+        res.json({ success: true, token, username: user.username, individual_id: individualRows[0].id });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ success: false, message: 'Server error' });
+    }
+});
+
+app.get('/api/student/dashboard', requireStudent, async (req, res) => {
+    try {
+        const todayKey = formatDateKey(new Date());
+        const userId = String(req.student.userId);
+        const [individualRows] = await pool.query(`
+            SELECT i.*, t.name as team_name, wl.work_text as current_day_work, u.username, u.created_at as user_created_at
+            FROM individuals i
+            LEFT JOIN teams t ON i.team_id = t.id
+            LEFT JOIN users u ON u.id = i.user_id
+            LEFT JOIN individual_work_logs wl ON wl.individual_id = i.id AND wl.work_date = ?
+            WHERE i.id = ? AND i.user_id = ?
+            LIMIT 1
+        `, [todayKey, req.student.individualId, req.student.userId]);
+        if (individualRows.length === 0) return res.status(404).json({ error: 'Student profile not found' });
+
+        const student = individualRows[0];
+        const [achievementRows] = await pool.query('SELECT * FROM achievements ORDER BY date DESC, id DESC');
+        const linkedAchievements = achievementRows.filter(achievement => {
+            const contributors = parseJsonArray(achievement.contributors);
+            return contributors.some(contributor => isPersonMatch(contributor, student.name));
+        });
+
+        const [certificateCountRows] = await pool.query('SELECT COUNT(*) as total FROM ctf_participation_teams WHERE JSON_SEARCH(members, "one", ?) IS NOT NULL', [student.name]);
+        const rangeStartKey = earliestDateKey(student.user_created_at, student.created_at, todayKey) || todayKey;
+        const workingDateKeys = await getWorkingDateKeys(rangeStartKey, todayKey);
+        const [attendanceRows] = await pool.query(
+            'SELECT attendance_date, entry_at, exit_at FROM attendance WHERE user_id = ? AND attendance_date BETWEEN ? AND ?',
+            [userId, rangeStartKey, todayKey]
+        );
+        const [odRows] = await pool.query(
+            'SELECT od_date, reason FROM attendance_od WHERE user_id = ? AND od_date BETWEEN ? AND ?',
+            [userId, rangeStartKey, todayKey]
+        );
+        const attendedDates = new Set(attendanceRows.map(row => toDateKey(row.attendance_date)));
+        const odDates = new Set(odRows.map(row => toDateKey(row.od_date)));
+        const firstHistoryByUser = await getFirstAttendanceHistoryByUser();
+        const countingStartKey = getAttendanceCountingStart({
+            rangeStartKey,
+            userCreatedAt: student.user_created_at,
+            individualCreatedAt: student.created_at,
+            historyDates: firstHistoryByUser.has(userId) ? [firstHistoryByUser.get(userId)] : []
+        });
+        const countedWorkingDays = workingDateKeys.filter(dateKey => dateKey >= countingStartKey);
+        const attendedDays = [...attendedDates].filter(dateKey => countedWorkingDays.includes(dateKey)).length;
+        const odDays = [...odDates].filter(dateKey => countedWorkingDays.includes(dateKey) && !attendedDates.has(dateKey)).length;
+        const attendancePercentage = countedWorkingDays.length === 0 ? 100 : Math.round(((attendedDays + odDays) / countedWorkingDays.length) * 100);
+
+        const todayAttendance = attendanceRows.find(row => toDateKey(row.attendance_date) === todayKey) || null;
+        const todayOd = odRows.find(row => toDateKey(row.od_date) === todayKey) || null;
+        const today = new Date(`${todayKey}T00:00:00`);
+        const [holidayRows] = await pool.query('SELECT title FROM attendance_holidays WHERE holiday_date = ? LIMIT 1', [todayKey]);
+        let todayStatus = 'not_updated';
+        let todayLabel = 'Not updated';
+        if (holidayRows.length > 0 || today.getDay() === 0 || isFirstOrThirdSaturday(today)) {
+            todayStatus = 'holiday';
+            todayLabel = holidayRows[0]?.title || 'Holiday';
+        } else if (todayOd) {
+            todayStatus = 'od';
+            todayLabel = todayOd.reason || 'OD';
+        } else if (!todayAttendance) {
+            todayStatus = 'absent';
+            todayLabel = 'Absent';
+        } else if (student.current_day_work) {
+            todayStatus = 'updated';
+            todayLabel = student.current_day_work;
+        }
+
+        res.json({
+            student: {
+                id: student.id,
+                name: student.name,
+                username: student.username,
+                role: student.role,
+                department: student.department,
+                year_of_study: student.year_of_study,
+                studying_year: student.studying_year,
+                team_name: student.team_name,
+                image: student.image,
+                certificates: parseJsonArray(student.certificates),
+                research_work: parseJsonArray(student.research_work),
+                current_day_work: student.current_day_work || '',
+                current_work_status: todayStatus,
+                current_work_label: todayLabel
+            },
+            stats: {
+                achievements: linkedAchievements.length,
+                participations: certificateCountRows[0]?.total || 0,
+                attended_days: attendedDays,
+                od_days: odDays,
+                working_days: countedWorkingDays.length,
+                attendance_percentage: attendancePercentage,
+                today_entry_at: todayAttendance?.entry_at || null,
+                today_exit_at: todayAttendance?.exit_at || null
+            },
+            achievements: linkedAchievements.slice(0, 12)
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error fetching student dashboard' });
+    }
+});
+
+app.put('/api/student/profile', requireStudent, async (req, res) => {
+    const name = String(req.body?.name || '').trim();
+    const department = String(req.body?.department || '').trim();
+    const yearOfStudy = String(req.body?.year_of_study || '').trim();
+    const studyingYearRaw = req.body?.studying_year;
+    const studyingYear = studyingYearRaw === '' || studyingYearRaw === null || studyingYearRaw === undefined ? null : Number(studyingYearRaw);
+    const image = String(req.body?.image || '').trim();
+    const certificates = Array.isArray(req.body?.certificates) ? req.body.certificates : [];
+    const researchWork = Array.isArray(req.body?.research_work) ? req.body.research_work : [];
+
+    if (!name) return res.status(400).json({ error: 'Name is required' });
+    if (studyingYear !== null && (!Number.isInteger(studyingYear) || studyingYear < 1 || studyingYear > 4)) {
+        return res.status(400).json({ error: 'Studying year must be between 1 and 4' });
+    }
+
+    try {
+        const [result] = await pool.query(
+            `UPDATE individuals
+             SET name = ?, department = ?, year_of_study = ?, studying_year = ?, image = ?, certificates = ?, research_work = ?
+             WHERE id = ? AND user_id = ?`,
+            [
+                name,
+                department,
+                yearOfStudy,
+                studyingYear,
+                image,
+                JSON.stringify(certificates),
+                JSON.stringify(researchWork),
+                req.student.individualId,
+                req.student.userId
+            ]
+        );
+        if (result.affectedRows === 0) return res.status(404).json({ error: 'Student profile not found' });
+        res.json({ message: 'Student profile updated successfully' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error updating student profile' });
     }
 });
 

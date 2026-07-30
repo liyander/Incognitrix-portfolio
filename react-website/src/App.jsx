@@ -11,9 +11,12 @@ import Dashboard from './Dashboard';
 
 import AdminLogin from './AdminLogin';
 import UserLogin from './UserLogin';
+import StudentLogin from './StudentLogin';
+import StudentDashboard from './StudentDashboard';
 
 function App() {
   const [normalUser, setNormalUser] = useState(null);
+  const [studentUser, setStudentUser] = useState(() => sessionStorage.getItem('studentToken') ? { username: 'student' } : null);
 
   const [selectedProject, setSelectedProject] = useState(null);
   const [selectedIndividualId, setSelectedIndividualId] = useState(null);
@@ -545,13 +548,19 @@ function App() {
             >
               CTFS
             </button>
-            <button 
+            <button
               onClick={() => { setView('attendance'); setSelectedProject(null); }}
               className={`font-mono text-xs tracking-widest mr-4 pb-1 transition-colors ${view === 'attendance' ? 'text-primary-container border-b-2 border-primary-container' : 'text-outline hover:text-primary-container'}`}
             >
               ATTENDANCE
             </button>
-            <button 
+            <button
+              onClick={() => { setView('student'); setSelectedProject(null); }}
+              className={`font-mono text-xs tracking-widest mr-4 pb-1 transition-colors ${view === 'student' ? 'text-primary-container border-b-2 border-primary-container' : 'text-outline hover:text-primary-container'}`}
+            >
+              STUDENT
+            </button>
+            <button
               onClick={() => setView('admin')}
               className={`font-mono text-xs font-bold px-3 py-1 rounded transition-all ${view === 'admin' ? 'bg-primary text-on-primary-fixed' : 'border border-primary text-primary hover:bg-primary hover:text-on-primary-fixed'}`}
             >
@@ -573,6 +582,15 @@ function App() {
           )
         ) : view === 'attendance' ? (
           <UserLogin onLogin={() => setView('portal')} />
+        ) : view === 'student' ? (
+          studentUser ? (
+            <StudentDashboard onLogout={() => {
+              sessionStorage.removeItem('studentToken');
+              setStudentUser(null);
+            }} />
+          ) : (
+            <StudentLogin onLogin={(data) => setStudentUser(data)} />
+          )
         ) : view === 'dashboard' ? <Dashboard useDatabase={useDatabase} /> : view === 'teams' ? <Teams useDatabase={useDatabase} onSelectProject={(p) => { setSelectedProject(p); setView('portal'); }} onSelectIndividual={(id) => { setSelectedIndividualId(id); setView('individual-profile'); }} /> : view === 'individuals' ? <Individuals useDatabase={useDatabase} onSelectIndividual={(id) => { setSelectedIndividualId(id); setView('individual-profile'); }} /> : view === 'individual-profile' ? <IndividualProfile useDatabase={useDatabase} individualId={selectedIndividualId} projects={projects} onNavigateToProject={(p) => { setSelectedProject(p); setView('portal'); }} onNavigateToTeam={() => setView('teams')} onBack={() => { setView('individuals'); setSelectedIndividualId(null); }} /> : view === 'cves' ? <CVEs useDatabase={useDatabase} /> : view === 'upcoming-ctfs' ? <UpcomingCTFs /> : view === 'achievements' ? <Achievements useDatabase={useDatabase} /> : (selectedProject ? renderProductDetails(selectedProject) : renderProductList())}
       </main>
 

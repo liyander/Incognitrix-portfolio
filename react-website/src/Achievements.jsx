@@ -46,7 +46,7 @@ function Achievements({ onSelectAchievement, useDatabase }) {
       venue: 'Sri Ramakrishna Engineering College, Coimbatore',
       domains: ['Product Presentation', 'Ideathon', 'Buildathon', 'Prototype Work'],
       signal: 'Innovation and prototype delivery',
-      icon: 'emoji_objects'
+      icon: 'emoji_objects' 
     },
     'Vulnerability Research Across Major Technology Organizations': {
       type: 'Security Research',
