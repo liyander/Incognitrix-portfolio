@@ -209,6 +209,15 @@ function App() {
 
   const activeHeroProject = projects[activeHeroIndex] || null;
   const defaultImage = "https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=2072&auto=format&fit=crop";
+  const sideNavItems = [
+    { view: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
+    { view: 'portal', label: 'Products', icon: 'inventory_2' },
+    { view: 'teams', label: 'Teams', icon: 'groups' },
+    { view: 'individuals', label: 'Individuals', icon: 'badge' },
+    { view: 'achievements', label: 'Achievements', icon: 'military_tech' },
+    { view: 'cves', label: 'CVEs', icon: 'bug_report' },
+    { view: 'upcoming-ctfs', label: 'CTFs', icon: 'flag' }
+  ];
 
   const parseJsonArray = (value) => {
     if (!value) return [];
@@ -506,48 +515,6 @@ function App() {
               <span className="font-headline font-bold tracking-widest text-on-surface text-lg uppercase jarvis-text hologram">Incognitrix lab</span>
           </div>
           <nav className="hidden md:flex space-x-6 items-center">
-            <button 
-              onClick={() => { setView('dashboard'); setSelectedProject(null); }}
-              className={`font-mono text-xs tracking-widest pb-1 transition-colors ${view === 'dashboard' ? 'text-primary-container border-b-2 border-primary-container' : 'text-outline hover:text-primary-container'}`}
-            >
-              DASHBOARD
-            </button>
-            <button 
-              onClick={() => { setView('portal'); setSelectedProject(null); }}
-              className={`font-mono text-xs tracking-widest pb-1 transition-colors ${view === 'portal' && !selectedProject ? 'text-primary-container border-b-2 border-primary-container' : 'text-outline hover:text-primary-container'}`}
-            >
-              PRODUCTS
-            </button>
-            <button 
-              onClick={() => setView('teams')}
-              className={`font-mono text-xs tracking-widest pb-1 transition-colors ${view === 'teams' ? 'text-primary-container border-b-2 border-primary-container' : 'text-outline hover:text-primary-container'}`}
-            >
-              TEAMS
-            </button>
-            <button 
-              onClick={() => { setView('individuals'); setSelectedProject(null); }}
-              className={`font-mono text-xs tracking-widest pb-1 transition-colors ${view === 'individuals' || view === 'individual-profile' ? 'text-primary-container border-b-2 border-primary-container' : 'text-outline hover:text-primary-container'}`}
-            >
-              INDIVIDUALS
-            </button>
-            <button 
-              onClick={() => { setView('achievements'); setSelectedProject(null); }}
-              className={`font-mono text-xs tracking-widest pb-1 transition-colors ${view === 'achievements' ? 'text-primary-container border-b-2 border-primary-container' : 'text-outline hover:text-primary-container'}`}
-            >
-              ACHIEVEMENTS
-            </button>
-            <button 
-              onClick={() => { setView('cves'); setSelectedProject(null); }}
-              className={`font-mono text-xs tracking-widest mr-4 pb-1 transition-colors ${view === 'cves' ? 'text-primary-container border-b-2 border-primary-container' : 'text-outline hover:text-primary-container'}`}
-            >
-              CVES
-            </button>
-            <button 
-              onClick={() => { setView('upcoming-ctfs'); setSelectedProject(null); }}
-              className={`font-mono text-xs tracking-widest mr-4 pb-1 transition-colors ${view === 'upcoming-ctfs' ? 'text-primary-container border-b-2 border-primary-container' : 'text-outline hover:text-primary-container'}`}
-            >
-              CTFS
-            </button>
             <button
               onClick={() => { setView('attendance'); setSelectedProject(null); }}
               className={`font-mono text-xs tracking-widest mr-4 pb-1 transition-colors ${view === 'attendance' ? 'text-primary-container border-b-2 border-primary-container' : 'text-outline hover:text-primary-container'}`}
@@ -569,6 +536,32 @@ function App() {
           </nav>
         </div>
       </header>
+
+      <div className="flex-1 min-h-0 flex overflow-hidden">
+        <aside className="hidden md:flex w-60 shrink-0 border-r border-outline-variant/50 bg-surface-dim/80 backdrop-blur-md z-40 flex-col p-4 gap-2">
+          <div className="font-mono text-[10px] text-outline uppercase tracking-widest px-3 py-2">Navigation</div>
+          {sideNavItems.map(item => {
+            const active = item.view === 'portal'
+              ? view === 'portal' && !selectedProject
+              : item.view === 'individuals'
+                ? view === 'individuals' || view === 'individual-profile'
+                : view === item.view;
+            return (
+              <button
+                key={item.view}
+                onClick={() => {
+                  setView(item.view);
+                  if (item.view !== 'portal') setSelectedProject(null);
+                  if (item.view !== 'individuals') setSelectedIndividualId(null);
+                }}
+                className={`w-full flex items-center gap-3 rounded px-3 py-3 text-left font-mono text-xs uppercase tracking-widest transition-colors ${active ? 'bg-primary/15 text-primary border border-primary/30' : 'text-outline border border-transparent hover:text-primary hover:bg-primary/5'}`}
+              >
+                <span className="material-symbols-outlined text-[18px]">{item.icon}</span>
+                {item.label}
+              </button>
+            );
+          })}
+        </aside>
 
       <main ref={mainRef} className="flex-1 w-full overflow-y-auto">
         {view === 'admin' ? (
@@ -593,6 +586,7 @@ function App() {
           )
         ) : view === 'dashboard' ? <Dashboard useDatabase={useDatabase} /> : view === 'teams' ? <Teams useDatabase={useDatabase} onSelectProject={(p) => { setSelectedProject(p); setView('portal'); }} onSelectIndividual={(id) => { setSelectedIndividualId(id); setView('individual-profile'); }} /> : view === 'individuals' ? <Individuals useDatabase={useDatabase} onSelectIndividual={(id) => { setSelectedIndividualId(id); setView('individual-profile'); }} /> : view === 'individual-profile' ? <IndividualProfile useDatabase={useDatabase} individualId={selectedIndividualId} projects={projects} onNavigateToProject={(p) => { setSelectedProject(p); setView('portal'); }} onNavigateToTeam={() => setView('teams')} onBack={() => { setView('individuals'); setSelectedIndividualId(null); }} /> : view === 'cves' ? <CVEs useDatabase={useDatabase} /> : view === 'upcoming-ctfs' ? <UpcomingCTFs /> : view === 'achievements' ? <Achievements useDatabase={useDatabase} /> : (selectedProject ? renderProductDetails(selectedProject) : renderProductList())}
       </main>
+      </div>
 
       {/* Special Alive Effects Overlay */}
       <div className="pointer-events-none fixed inset-0 z-40 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0IiBoZWlnaHQ9IjQiPjxyZWN0IHdpZHRoPSI0IiBoZWlnaHQ9IjQiIGZpbGw9InRyYW5zcGFyZW50Ii8+PGxpbmUgeDE9IjAiIHkxPSIwIiB4Mj0iNCIgeTI9IjAiIHN0cm9rZT0icmdiYSgwLCAyNDUsIDI1NSwgMC4wMikiIHN0cm9rZS13aWR0aD0iMSIvPjwvc3ZnPg==')] opacity-50 mix-blend-screen"></div>

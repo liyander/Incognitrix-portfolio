@@ -614,6 +614,18 @@ async function recordGuestAttendance({ guestName, department, purpose }) {
     };
 }
 
+const parseProjectOperatives = (value) => {
+    const parsed = parseJsonArray(value);
+    return parsed.map(item => typeof item === 'string' ? item : item?.name).filter(Boolean);
+};
+
+const isProjectLinkedToStudent = (project, student) => {
+    const operativeMatch = parseProjectOperatives(project.operatives).some(name => isPersonMatch(name, student.name));
+    const projectTeam = String(project.team || project.priority || '').toLowerCase();
+    const studentTeam = String(student.team_name || '').toLowerCase();
+    return operativeMatch || (projectTeam && studentTeam && projectTeam === studentTeam);
+};
+
 // -----------------------------------------
 // ROUTES
 // -----------------------------------------
@@ -3034,6 +3046,9 @@ app.get('/api/student/dashboard', requireStudent, async (req, res) => {
             const contributors = parseJsonArray(achievement.contributors);
             return contributors.some(contributor => isPersonMatch(contributor, student.name));
         });
+        const [projectRows] = await pool.query('SELECT * FROM projects ORDER BY COALESCE(sort_order, 999999), id');
+        const linkedProjects = projectRows.filter(project => isProjectLinkedToStudent(project, student));
+        const [teamRows] = student.team_id ? await pool.query('SELECT * FROM teams WHERE id = ? LIMIT 1', [student.team_id]) : [[]];
 
         const [certificateCountRows] = await pool.query('SELECT COUNT(*) as total FROM ctf_participation_teams WHERE JSON_SEARCH(members, "one", ?) IS NOT NULL', [student.name]);
         const rangeStartKey = earliestDateKey(student.user_created_at, student.created_at, todayKey) || todayKey;
@@ -3090,6 +3105,7 @@ app.get('/api/student/dashboard', requireStudent, async (req, res) => {
                 year_of_study: student.year_of_study,
                 studying_year: student.studying_year,
                 team_name: student.team_name,
+                team_id: student.team_id,
                 image: student.image,
                 certificates: parseJsonArray(student.certificates),
                 research_work: parseJsonArray(student.research_work),
@@ -3099,6 +3115,7 @@ app.get('/api/student/dashboard', requireStudent, async (req, res) => {
             },
             stats: {
                 achievements: linkedAchievements.length,
+                projects: linkedProjects.length,
                 participations: certificateCountRows[0]?.total || 0,
                 attended_days: attendedDays,
                 od_days: odDays,
@@ -3107,11 +3124,119 @@ app.get('/api/student/dashboard', requireStudent, async (req, res) => {
                 today_entry_at: todayAttendance?.entry_at || null,
                 today_exit_at: todayAttendance?.exit_at || null
             },
-            achievements: linkedAchievements.slice(0, 12)
+            achievements: linkedAchievements.slice(0, 12),
+            projects: linkedProjects,
+            team: teamRows[0] || null
         });
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Server error fetching student dashboard' });
+    }
+});
+
+app.put('/api/student/projects/:id', requireStudent, async (req, res) => {
+    try {
+        const [studentRows] = await pool.query(`
+            SELECT i.*, t.name as team_name
+            FROM individuals i
+            LEFT JOIN teams t ON i.team_id = t.id
+            WHERE i.id = ? AND i.user_id = ?
+            LIMIT 1
+        `, [req.student.individualId, req.student.userId]);
+        if (studentRows.length === 0) return res.status(404).json({ error: 'Student profile not found' });
+
+        const [projectRows] = await pool.query('SELECT * FROM projects WHERE id = ? LIMIT 1', [req.params.id]);
+        if (projectRows.length === 0) return res.status(404).json({ error: 'Project not found' });
+        if (!isProjectLinkedToStudent(projectRows[0], studentRows[0])) {
+            return res.status(403).json({ error: 'You can only update projects linked to your profile or team' });
+        }
+
+        const project = { ...projectRows[0], ...req.body };
+        await pool.query(
+            `UPDATE projects
+             SET title = ?, status = ?, description = ?, shortDesc = ?, image = ?, stack = ?, timeline = ?, usage_desc = ?
+             WHERE id = ?`,
+            [
+                project.title || '',
+                project.status || 'ONGOING',
+                project.description || '',
+                project.shortDesc || '',
+                project.image || '',
+                JSON.stringify(Array.isArray(project.stack) ? project.stack : parseJsonArray(project.stack)),
+                JSON.stringify(Array.isArray(project.timeline) ? project.timeline : parseJsonArray(project.timeline)),
+                project.usage_desc || '',
+                req.params.id
+            ]
+        );
+        res.json({ message: 'Project details updated successfully' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error updating student project' });
+    }
+});
+
+app.post('/api/student/achievements', requireStudent, async (req, res) => {
+    const { title, description, date, future_scope, reference_link } = req.body;
+    if (!String(title || '').trim()) return res.status(400).json({ error: 'Achievement title is required' });
+
+    try {
+        const [studentRows] = await pool.query('SELECT name FROM individuals WHERE id = ? AND user_id = ? LIMIT 1', [req.student.individualId, req.student.userId]);
+        if (studentRows.length === 0) return res.status(404).json({ error: 'Student profile not found' });
+
+        const [result] = await pool.query(
+            'INSERT INTO achievements (title, description, date, future_scope, reference_link, contributors) VALUES (?, ?, ?, ?, ?, ?)',
+            [title, description || '', date || null, future_scope || '', toJsonArray(reference_link), JSON.stringify([studentRows[0].name])]
+        );
+        res.status(201).json({ id: result.insertId, message: 'Achievement added successfully' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error adding achievement' });
+    }
+});
+
+app.put('/api/student/achievements/:id', requireStudent, async (req, res) => {
+    const { title, description, date, future_scope, reference_link } = req.body;
+    if (!String(title || '').trim()) return res.status(400).json({ error: 'Achievement title is required' });
+
+    try {
+        const [studentRows] = await pool.query('SELECT name FROM individuals WHERE id = ? AND user_id = ? LIMIT 1', [req.student.individualId, req.student.userId]);
+        if (studentRows.length === 0) return res.status(404).json({ error: 'Student profile not found' });
+
+        const [achievementRows] = await pool.query('SELECT * FROM achievements WHERE id = ? LIMIT 1', [req.params.id]);
+        if (achievementRows.length === 0) return res.status(404).json({ error: 'Achievement not found' });
+        const contributors = parseJsonArray(achievementRows[0].contributors);
+        if (!contributors.some(contributor => isPersonMatch(contributor, studentRows[0].name))) {
+            return res.status(403).json({ error: 'You can only update achievements linked to your profile' });
+        }
+
+        await pool.query(
+            'UPDATE achievements SET title = ?, description = ?, date = ?, future_scope = ?, reference_link = ? WHERE id = ?',
+            [title, description || '', date || null, future_scope || '', toJsonArray(reference_link), req.params.id]
+        );
+        res.json({ message: 'Achievement updated successfully' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error updating achievement' });
+    }
+});
+
+app.put('/api/student/team', requireStudent, async (req, res) => {
+    const { name, description, technical_summary, current_objective } = req.body;
+    if (!String(name || '').trim()) return res.status(400).json({ error: 'Team name is required' });
+
+    try {
+        const [studentRows] = await pool.query('SELECT team_id FROM individuals WHERE id = ? AND user_id = ? LIMIT 1', [req.student.individualId, req.student.userId]);
+        if (studentRows.length === 0) return res.status(404).json({ error: 'Student profile not found' });
+        if (!studentRows[0].team_id) return res.status(400).json({ error: 'No team is linked to this student' });
+
+        await pool.query(
+            'UPDATE teams SET name = ?, description = ?, technical_summary = ?, current_objective = ? WHERE id = ?',
+            [name, description || '', technical_summary || '', current_objective || '', studentRows[0].team_id]
+        );
+        res.json({ message: 'Team details updated successfully' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error updating student team' });
     }
 });
 
