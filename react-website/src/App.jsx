@@ -8,6 +8,7 @@ import Achievements from './Achievements';
 import Individuals from './Individuals';
 import IndividualProfile from './IndividualProfile';
 import Dashboard from './Dashboard';
+import Alumni from './Alumni';
 
 import AdminLogin from './AdminLogin';
 import UserLogin from './UserLogin';
@@ -217,6 +218,7 @@ function App() {
     { view: 'teams', label: 'Teams', icon: 'groups', meta: 'Ops' },
     { view: 'individuals', label: 'Individuals', icon: 'badge', meta: String(individuals.length || 0) },
     { view: 'achievements', label: 'Achievements', icon: 'military_tech', meta: 'Intel' },
+    { view: 'alumni', label: 'Alumni', icon: 'workspace_premium', meta: 'Network' },
     { view: 'cves', label: 'CVEs', icon: 'bug_report', meta: 'CVE' },
     { view: 'upcoming-ctfs', label: 'CTFs', icon: 'flag', meta: 'Events' }
   ], [projects.length, individuals.length]);
@@ -688,7 +690,7 @@ function App() {
           ) : (
             <StudentLogin onLogin={(data) => setStudentUser(data)} />
           )
-        ) : view === 'dashboard' ? <Dashboard useDatabase={useDatabase} /> : view === 'teams' ? <Teams useDatabase={useDatabase} onSelectProject={(p) => { setSelectedProject(p); setView('portal'); }} onSelectIndividual={(id) => { setSelectedIndividualId(id); setView('individual-profile'); }} /> : view === 'individuals' ? <Individuals useDatabase={useDatabase} onSelectIndividual={(id) => { setSelectedIndividualId(id); setView('individual-profile'); }} /> : view === 'individual-profile' ? <IndividualProfile useDatabase={useDatabase} individualId={selectedIndividualId} projects={projects} onNavigateToProject={(p) => { setSelectedProject(p); setView('portal'); }} onNavigateToTeam={() => setView('teams')} onBack={() => { setView('individuals'); setSelectedIndividualId(null); }} /> : view === 'cves' ? <CVEs useDatabase={useDatabase} /> : view === 'upcoming-ctfs' ? <UpcomingCTFs /> : view === 'achievements' ? <Achievements useDatabase={useDatabase} /> : (selectedProject ? renderProductDetails(selectedProject) : renderProductList())}
+        ) : view === 'dashboard' ? <Dashboard useDatabase={useDatabase} /> : view === 'teams' ? <Teams useDatabase={useDatabase} onSelectProject={(p) => { setSelectedProject(p); setView('portal'); }} onSelectIndividual={(id) => { setSelectedIndividualId(id); setView('individual-profile'); }} /> : view === 'individuals' ? <Individuals useDatabase={useDatabase} onSelectIndividual={(id) => { setSelectedIndividualId(id); setView('individual-profile'); }} /> : view === 'individual-profile' ? <IndividualProfile useDatabase={useDatabase} individualId={selectedIndividualId} projects={projects} onNavigateToProject={(p) => { setSelectedProject(p); setView('portal'); }} onNavigateToTeam={() => setView('teams')} onBack={() => { setView('individuals'); setSelectedIndividualId(null); }} /> : view === 'alumni' ? <Alumni /> : view === 'cves' ? <CVEs useDatabase={useDatabase} /> : view === 'upcoming-ctfs' ? <UpcomingCTFs /> : view === 'achievements' ? <Achievements useDatabase={useDatabase} /> : (selectedProject ? renderProductDetails(selectedProject) : renderProductList())}
       </main>
       </div>
 

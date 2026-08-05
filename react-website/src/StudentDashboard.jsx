@@ -25,8 +25,10 @@ function StudentDashboard({ onLogout }) {
   const [achievementForms, setAchievementForms] = useState({});
   const [newAchievementForm, setNewAchievementForm] = useState({ title: '', description: '', date: '', future_scope: '', reference_link: '' });
   const [teamForm, setTeamForm] = useState(null);
+  const [dailyWorkText, setDailyWorkText] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [savingDailyWork, setSavingDailyWork] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
@@ -45,6 +47,7 @@ function StudentDashboard({ onLogout }) {
         return;
       }
       setDashboard(data);
+      setDailyWorkText(data.student.current_day_work || '');
       setProfileForm({
         name: data.student.name || '',
         department: data.student.department || '',
@@ -237,6 +240,32 @@ function StudentDashboard({ onLogout }) {
     }
   };
 
+  const saveDailyWork = async (e) => {
+    e.preventDefault();
+    setSavingDailyWork(true);
+    setMessage('');
+    setError('');
+    try {
+      const response = await fetch('/api/student/daily-work', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ work_text: dailyWorkText })
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        setError(data.error || 'Failed to update daily work');
+        return;
+      }
+      setMessage(data.message || 'Daily work updated');
+      await fetchDashboard();
+    } catch (err) {
+      console.error(err);
+      setError('Failed to update daily work.');
+    } finally {
+      setSavingDailyWork(false);
+    }
+  };
+
   const formatDate = (value) => String(value || '').slice(0, 10) || 'NO DATE';
 
   if (loading) {
@@ -256,7 +285,8 @@ function StudentDashboard({ onLogout }) {
     );
   }
 
-  const { student, stats, achievements } = dashboard;
+  const { student, stats, achievements, daily_work_settings: dailyWorkSettings = {} } = dashboard;
+  const canUpdateDailyWork = Boolean(dailyWorkSettings.can_update);
 
   return (
     <div className="min-h-screen p-6 md:p-10 animate-fade-slide">
@@ -286,7 +316,7 @@ function StudentDashboard({ onLogout }) {
           </div>
         )}
 
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
           {[
             ['Attendance', `${stats.attendance_percentage}%`],
             ['Present Days', stats.attended_days],
@@ -295,12 +325,49 @@ function StudentDashboard({ onLogout }) {
             ['Projects', stats.projects],
             ['Participations', stats.participations]
           ].map(([label, value]) => (
-            <div key={label} className="bg-background border border-outline/20 rounded p-4">
+            <div key={label} className="bg-background border border-outline/20 rounded p-4 hover:border-primary/30 transition-colors">
               <div className="font-mono text-[10px] text-outline uppercase tracking-widest">{label}</div>
               <div className="font-headline text-3xl font-bold text-primary mt-2">{value}</div>
             </div>
           ))}
         </div>
+
+        <section className="bg-background border border-outline/20 rounded p-5">
+          <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-5">
+            <div className="max-w-xl">
+              <div className="flex items-center gap-3 text-primary">
+                <span className="material-symbols-outlined text-2xl">edit_calendar</span>
+                <h2 className="font-headline text-2xl font-bold text-on-surface">Daily Work Update</h2>
+              </div>
+              <div className="mt-2 font-mono text-xs text-outline uppercase tracking-widest">
+                Opens after {dailyWorkSettings.start_time || '16:30'} IST / {canUpdateDailyWork ? 'Update window active' : 'Waiting for allowed time'}
+              </div>
+              <p className="mt-3 font-mono text-sm text-on-surface-variant">
+                Current status: <span className="text-primary">{student.current_work_label || 'Not updated'}</span>
+              </p>
+            </div>
+            <form onSubmit={saveDailyWork} className="w-full lg:max-w-2xl space-y-3 font-mono text-xs">
+              <textarea
+                value={dailyWorkText}
+                onChange={(e) => setDailyWorkText(e.target.value)}
+                rows={4}
+                className="w-full bg-surface-container-low border border-outline/30 rounded p-3 text-on-surface focus:border-primary focus:outline-none"
+                placeholder="Enter today's completed work, blockers, or lab progress"
+              />
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <span className={canUpdateDailyWork ? 'text-primary' : 'text-outline'}>
+                  {canUpdateDailyWork ? 'READY TO SUBMIT' : `LOCKED UNTIL ${dailyWorkSettings.start_time || '16:30'} IST`}
+                </span>
+                <button
+                  disabled={savingDailyWork || !canUpdateDailyWork}
+                  className="bg-primary/20 text-primary border border-primary/40 rounded px-5 py-2.5 font-bold hover:bg-primary/30 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {savingDailyWork ? 'SAVING...' : 'SAVE DAILY WORK'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </section>
 
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
           <section className="xl:col-span-5 bg-background border border-outline/20 rounded p-5">

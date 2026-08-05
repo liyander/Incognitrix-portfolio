@@ -14,6 +14,7 @@ const port = 1337;
 const execFileAsync = promisify(execFile);
 const ATTENDANCE_TIME_ZONE = 'Asia/Kolkata';
 const DEFAULT_ATTENDANCE_CUTOFF = '08:35';
+const DEFAULT_DAILY_WORK_UPDATE_START = '16:30';
 const ATTENDANCE_NOW_SQL = 'UTC_TIMESTAMP() + INTERVAL 330 MINUTE';
 const ADMIN_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 const adminSessions = new Map();
@@ -428,6 +429,25 @@ async function ensureRuntimeSchema() {
             )
         `);
         await pool.query(`
+            CREATE TABLE IF NOT EXISTS alumni (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                image TEXT,
+                batch_year VARCHAR(50),
+                project_title VARCHAR(255),
+                project_details TEXT,
+                internship_details TEXT,
+                job_details TEXT,
+                current_company VARCHAR(255),
+                current_role VARCHAR(255),
+                linkedin TEXT,
+                email VARCHAR(255),
+                notes TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        `);
+        await pool.query(`
             UPDATE users u
             JOIN (
                 SELECT user_id, MIN(record_date) AS first_attendance_date
@@ -459,6 +479,11 @@ async function ensureRuntimeSchema() {
              VALUES ('attendance_cutoff_time', ?)`,
             [DEFAULT_ATTENDANCE_CUTOFF]
         );
+        await pool.query(
+            `INSERT IGNORE INTO app_settings (setting_key, setting_value)
+             VALUES ('daily_work_update_start_time', ?)`,
+            [DEFAULT_DAILY_WORK_UPDATE_START]
+        );
     } catch (err) {
         console.error('Runtime schema migration failed:', err);
     }
@@ -483,6 +508,15 @@ const getAttendanceCutoff = async () => {
     );
     const storedValue = rows[0]?.setting_value;
     return isValidTimeValue(storedValue) ? storedValue : DEFAULT_ATTENDANCE_CUTOFF;
+};
+
+const getDailyWorkUpdateStart = async () => {
+    const [rows] = await pool.query(
+        `SELECT setting_value FROM app_settings
+         WHERE setting_key = 'daily_work_update_start_time' LIMIT 1`
+    );
+    const storedValue = rows[0]?.setting_value;
+    return isValidTimeValue(storedValue) ? storedValue : DEFAULT_DAILY_WORK_UPDATE_START;
 };
 
 const getCurrentTimeInAttendanceZoneSeconds = () => {
@@ -632,6 +666,27 @@ const isProjectLinkedToStudent = (project, student) => {
 
 app.get('/api/health', (req, res) => {
     res.json({ ok: true, service: 'backend', timestamp: new Date().toISOString() });
+});
+
+app.get('/api/alumni', async (req, res) => {
+    try {
+        const [rows] = await pool.query('SELECT * FROM alumni ORDER BY COALESCE(batch_year, "") DESC, name ASC');
+        res.json(rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error fetching alumni' });
+    }
+});
+
+app.get('/api/alumni/:id', async (req, res) => {
+    try {
+        const [rows] = await pool.query('SELECT * FROM alumni WHERE id = ? LIMIT 1', [req.params.id]);
+        if (rows.length === 0) return res.status(404).json({ error: 'Alumni not found' });
+        res.json(rows[0]);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error fetching alumni profile' });
+    }
 });
 
 app.post('/api/guest/attendance', async (req, res) => {
@@ -2671,6 +2726,91 @@ app.put('/api/admin/attendance-settings', requireAdmin, async (req, res) => {
     }
 });
 
+app.get('/api/admin/daily-work-settings', async (req, res) => {
+    try {
+        const startTime = await getDailyWorkUpdateStart();
+        res.json({ start_time: startTime, timezone: ATTENDANCE_TIME_ZONE });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error fetching daily work settings' });
+    }
+});
+
+app.put('/api/admin/daily-work-settings', requireAdmin, async (req, res) => {
+    const startTime = String(req.body?.start_time || '');
+    if (!isValidTimeValue(startTime)) {
+        return res.status(400).json({ error: 'Start time must use HH:MM format' });
+    }
+
+    try {
+        await pool.query(
+            `INSERT INTO app_settings (setting_key, setting_value)
+             VALUES ('daily_work_update_start_time', ?)
+             ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)`,
+            [startTime]
+        );
+        res.json({ message: 'Daily work update time saved', start_time: startTime, timezone: ATTENDANCE_TIME_ZONE });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error updating daily work settings' });
+    }
+});
+
+app.get('/api/admin/alumni', async (req, res) => {
+    try {
+        const [rows] = await pool.query('SELECT * FROM alumni ORDER BY COALESCE(batch_year, "") DESC, name ASC');
+        res.json(rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error fetching alumni' });
+    }
+});
+
+app.post('/api/admin/alumni', requireAdmin, async (req, res) => {
+    const { name, image, batch_year, project_title, project_details, internship_details, job_details, current_company, current_role, linkedin, email, notes } = req.body;
+    if (!String(name || '').trim()) return res.status(400).json({ error: 'Name is required' });
+    try {
+        const [result] = await pool.query(
+            `INSERT INTO alumni (name, image, batch_year, project_title, project_details, internship_details, job_details, current_company, current_role, linkedin, email, notes)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [name, image || '', batch_year || '', project_title || '', project_details || '', internship_details || '', job_details || '', current_company || '', current_role || '', linkedin || '', email || '', notes || '']
+        );
+        res.status(201).json({ id: result.insertId, message: 'Alumni saved successfully' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error saving alumni' });
+    }
+});
+
+app.put('/api/admin/alumni/:id', requireAdmin, async (req, res) => {
+    const { name, image, batch_year, project_title, project_details, internship_details, job_details, current_company, current_role, linkedin, email, notes } = req.body;
+    if (!String(name || '').trim()) return res.status(400).json({ error: 'Name is required' });
+    try {
+        const [result] = await pool.query(
+            `UPDATE alumni
+             SET name = ?, image = ?, batch_year = ?, project_title = ?, project_details = ?, internship_details = ?, job_details = ?, current_company = ?, current_role = ?, linkedin = ?, email = ?, notes = ?
+             WHERE id = ?`,
+            [name, image || '', batch_year || '', project_title || '', project_details || '', internship_details || '', job_details || '', current_company || '', current_role || '', linkedin || '', email || '', notes || '', req.params.id]
+        );
+        if (result.affectedRows === 0) return res.status(404).json({ error: 'Alumni not found' });
+        res.json({ message: 'Alumni updated successfully' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error updating alumni' });
+    }
+});
+
+app.delete('/api/admin/alumni/:id', requireAdmin, async (req, res) => {
+    try {
+        const [result] = await pool.query('DELETE FROM alumni WHERE id = ?', [req.params.id]);
+        if (result.affectedRows === 0) return res.status(404).json({ error: 'Alumni not found' });
+        res.json({ message: 'Alumni deleted successfully' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error deleting alumni' });
+    }
+});
+
 app.delete('/api/admin/attendance', requireAdmin, async (req, res) => {
     if (req.body?.confirmation !== 'RESET ATTENDANCE') {
         return res.status(400).json({ error: 'Attendance reset confirmation is required' });
@@ -3029,6 +3169,8 @@ app.get('/api/student/dashboard', requireStudent, async (req, res) => {
     try {
         const todayKey = formatDateKey(new Date());
         const userId = String(req.student.userId);
+        const dailyWorkStartTime = await getDailyWorkUpdateStart();
+        const canUpdateDailyWork = getCurrentTimeInAttendanceZoneSeconds() >= getCutoffTimeSeconds(dailyWorkStartTime);
         const [individualRows] = await pool.query(`
             SELECT i.*, t.name as team_name, wl.work_text as current_day_work, u.username, u.created_at as user_created_at
             FROM individuals i
@@ -3126,11 +3268,58 @@ app.get('/api/student/dashboard', requireStudent, async (req, res) => {
             },
             achievements: linkedAchievements.slice(0, 12),
             projects: linkedProjects,
-            team: teamRows[0] || null
+            team: teamRows[0] || null,
+            daily_work_settings: {
+                start_time: dailyWorkStartTime,
+                can_update: canUpdateDailyWork,
+                timezone: ATTENDANCE_TIME_ZONE
+            }
         });
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Server error fetching student dashboard' });
+    }
+});
+
+app.put('/api/student/daily-work', requireStudent, async (req, res) => {
+    const workText = String(req.body?.work_text || '').trim();
+    if (!workText) return res.status(400).json({ error: 'Daily work update is required' });
+
+    try {
+        const startTime = await getDailyWorkUpdateStart();
+        const canUpdate = getCurrentTimeInAttendanceZoneSeconds() >= getCutoffTimeSeconds(startTime);
+        if (!canUpdate) {
+            return res.status(403).json({
+                error: `Daily work updates open after ${formatTimeForDisplay(startTime)} (${ATTENDANCE_TIME_ZONE}).`,
+                start_time: startTime,
+                can_update_daily_work: false
+            });
+        }
+
+        const todayKey = formatDateKey(new Date());
+        const [result] = await pool.query(
+            'UPDATE individuals SET daily_work = ? WHERE id = ? AND user_id = ?',
+            [workText, req.student.individualId, req.student.userId]
+        );
+        if (result.affectedRows === 0) return res.status(404).json({ error: 'Student profile not found' });
+
+        await pool.query(
+            `INSERT INTO individual_work_logs (individual_id, work_date, work_text)
+             VALUES (?, ?, ?)
+             ON DUPLICATE KEY UPDATE work_text = VALUES(work_text)`,
+            [req.student.individualId, todayKey, workText]
+        );
+
+        res.json({
+            message: 'Daily work update saved',
+            work_date: todayKey,
+            work_text: workText,
+            start_time: startTime,
+            timezone: ATTENDANCE_TIME_ZONE
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error updating daily work' });
     }
 });
 

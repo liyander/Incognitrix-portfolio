@@ -12,6 +12,7 @@ const UPCOMING_CTFS_API_URL = '/api/upcoming-ctfs';
 const CTF_PARTICIPATIONS_API_URL = '/api/ctf-participations';
 const LAB_PLANS_API_URL = '/api/admin/lab-plans';
 const DASHBOARD_HIGHLIGHTS_API_URL = '/api/admin/dashboard-highlights';
+const ADMIN_ALUMNI_API_URL = '/api/admin/alumni';
 
 const readJsonResponse = async (response) => {
   const contentType = response.headers.get('content-type') || '';
@@ -108,6 +109,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
   const [ctfParticipations, setCtfParticipations] = useState([]);
   const [labPlans, setLabPlans] = useState([]);
   const [dashboardHighlights, setDashboardHighlights] = useState([]);
+  const [alumni, setAlumni] = useState([]);
   const [attendanceStats, setAttendanceStats] = useState([]);
   const [guestAttendance, setGuestAttendance] = useState([]);
   const [attendanceRequests, setAttendanceRequests] = useState([]);
@@ -115,6 +117,8 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
   const [isResettingAttendance, setIsResettingAttendance] = useState(false);
   const [attendanceCutoff, setAttendanceCutoff] = useState('08:35');
   const [isSavingAttendanceCutoff, setIsSavingAttendanceCutoff] = useState(false);
+  const [dailyWorkUpdateStart, setDailyWorkUpdateStart] = useState('16:30');
+  const [isSavingDailyWorkUpdateStart, setIsSavingDailyWorkUpdateStart] = useState(false);
   const [selectedIndividual, setSelectedIndividual] = useState(null);
   const [selectedIndividualLoading, setSelectedIndividualLoading] = useState(false);
   const [selectedAttendanceMonth, setSelectedAttendanceMonth] = useState(getCurrentMonthValue());
@@ -158,6 +162,21 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
     participants: [],
     is_active: true
   });
+  const [alumniFormData, setAlumniFormData] = useState({
+    name: '',
+    image: '',
+    batch_year: '',
+    project_title: '',
+    project_details: '',
+    internship_details: '',
+    job_details: '',
+    current_company: '',
+    current_role: '',
+    linkedin: '',
+    email: '',
+    notes: ''
+  });
+  const [editingAlumniId, setEditingAlumniId] = useState(null);
   const [holidayFormData, setHolidayFormData] = useState({ holiday_date: '', title: '', holiday_type: 'Institute Holiday' });
   const [odFormData, setOdFormData] = useState({ user_ids: [], od_date: '', reason: '' });
   const [attendanceExportWeek, setAttendanceExportWeek] = useState(getCurrentWeekValue());
@@ -240,6 +259,8 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
     fetchAttendanceRequests();
     fetchAttendanceHolidays();
     fetchAttendanceSettings();
+    fetchDailyWorkSettings();
+    fetchAlumni();
   }, []);
 
   const fetchUpcomingCtfs = async () => {
@@ -281,6 +302,30 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
       }
     } catch (err) {
       console.error('Failed to fetch attendance settings', err);
+    }
+  };
+
+  const fetchDailyWorkSettings = async () => {
+    try {
+      const response = await fetch('/api/admin/daily-work-settings');
+      const data = await readJsonResponse(response);
+      if (response.ok && data?.start_time) {
+        setDailyWorkUpdateStart(data.start_time);
+      } else if (!response.ok && response.status !== 404) {
+        console.error('Failed to fetch daily work settings', data?.error || `HTTP ${response.status}`);
+      }
+    } catch (err) {
+      console.error('Failed to fetch daily work settings', err);
+    }
+  };
+
+  const fetchAlumni = async () => {
+    try {
+      const response = await fetch(ADMIN_ALUMNI_API_URL);
+      const data = await readJsonResponse(response);
+      setAlumni(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('Failed to fetch alumni', err);
     }
   };
 
@@ -833,6 +878,117 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
       showAlert('Failed to update attendance cutoff. Check console.', 'error');
     } finally {
       setIsSavingAttendanceCutoff(false);
+    }
+  };
+
+  const handleSaveDailyWorkSettings = async (e) => {
+    e.preventDefault();
+    setIsSavingDailyWorkUpdateStart(true);
+    try {
+      const response = await fetch('/api/admin/daily-work-settings', {
+        method: 'PUT',
+        headers: getAdminHeaders(true),
+        body: JSON.stringify({ start_time: dailyWorkUpdateStart })
+      });
+      const data = await readJsonResponse(response);
+      if (!response.ok) {
+        const fallbackMessage = response.status === 404
+          ? 'Daily work settings are unavailable on the running backend. Restart the backend server and try again.'
+          : `Failed to update daily work time (HTTP ${response.status}).`;
+        showAlert(data?.error || fallbackMessage, 'error');
+        return;
+      }
+      setDailyWorkUpdateStart(data.start_time || dailyWorkUpdateStart);
+      showAlert(`Daily work updates now open after ${data.start_time} (${data.timezone}).`);
+    } catch (err) {
+      console.error('Failed to update daily work settings', err);
+      showAlert('Failed to update daily work settings. Check console.', 'error');
+    } finally {
+      setIsSavingDailyWorkUpdateStart(false);
+    }
+  };
+
+  const resetAlumniForm = () => {
+    setEditingAlumniId(null);
+    setAlumniFormData({
+      name: '',
+      image: '',
+      batch_year: '',
+      project_title: '',
+      project_details: '',
+      internship_details: '',
+      job_details: '',
+      current_company: '',
+      current_role: '',
+      linkedin: '',
+      email: '',
+      notes: ''
+    });
+  };
+
+  const handleAlumniChange = (e) => {
+    setAlumniFormData({ ...alumniFormData, [e.target.name]: e.target.value });
+  };
+
+  const handleEditAlumni = (record) => {
+    setEditingAlumniId(record.id);
+    setAlumniFormData({
+      name: record.name || '',
+      image: record.image || '',
+      batch_year: record.batch_year || '',
+      project_title: record.project_title || '',
+      project_details: record.project_details || '',
+      internship_details: record.internship_details || '',
+      job_details: record.job_details || '',
+      current_company: record.current_company || '',
+      current_role: record.current_role || '',
+      linkedin: record.linkedin || '',
+      email: record.email || '',
+      notes: record.notes || ''
+    });
+    setActiveAdminView('alumni-list');
+  };
+
+  const handleAlumniSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      const response = await fetch(editingAlumniId ? `${ADMIN_ALUMNI_API_URL}/${editingAlumniId}` : ADMIN_ALUMNI_API_URL, {
+        method: editingAlumniId ? 'PUT' : 'POST',
+        headers: getAdminHeaders(true),
+        body: JSON.stringify(alumniFormData)
+      });
+      const data = await readJsonResponse(response);
+      if (!response.ok) {
+        showAlert(data?.error || 'Failed to save alumni profile.', 'error');
+        return;
+      }
+      showAlert(editingAlumniId ? 'Alumni profile updated.' : 'Alumni profile added.');
+      resetAlumniForm();
+      await fetchAlumni();
+    } catch (err) {
+      console.error('Failed to save alumni', err);
+      showAlert('Failed to save alumni. Check console.', 'error');
+    }
+  };
+
+  const handleDeleteAlumni = async (record) => {
+    if (!(await showConfirm(`Delete alumni profile for ${record.name}?`))) return;
+    try {
+      const response = await fetch(`${ADMIN_ALUMNI_API_URL}/${record.id}`, {
+        method: 'DELETE',
+        headers: getAdminHeaders()
+      });
+      const data = await readJsonResponse(response);
+      if (!response.ok) {
+        showAlert(data?.error || 'Failed to delete alumni profile.', 'error');
+        return;
+      }
+      showAlert('Alumni profile deleted.');
+      if (editingAlumniId === record.id) resetAlumniForm();
+      await fetchAlumni();
+    } catch (err) {
+      console.error('Failed to delete alumni', err);
+      showAlert('Failed to delete alumni. Check console.', 'error');
     }
   };
 
@@ -1815,6 +1971,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
         {activeAdminView === 'individual-detail' && "Inspect individual details, current work, and stored daily work timeline."}
         {activeAdminView === 'lab-plan' && "Set the daily schedule and weekly target visible to normal users."}
         {activeAdminView === 'dashboard-highlights' && "Publish recent achievements, participation, and info cards to the command dashboard."}
+        {activeAdminView === 'alumni-list' && "Maintain alumni placements, internships, jobs, and lab project history."}
       </p>
 
       {/* DASHBOARD VIEW */}
@@ -1952,6 +2109,25 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
             </div>
           </div>
 
+          {/* Alumni Card */}
+          <div
+            onClick={() => {
+              resetAlumniForm();
+              setActiveAdminView('alumni-list');
+            }}
+            className="group cursor-pointer bg-surface-container-low p-6 rounded border ghost-border hover:border-primary-container hover:shadow-[0_0_20px_rgba(0,245,255,0.15)] transition-all"
+          >
+            <div className="flex items-center gap-4 mb-4 text-primary-container group-hover:drop-shadow-[0_0_8px_rgba(0,245,255,0.8)]">
+              <span className="material-symbols-outlined text-3xl">workspace_premium</span>
+              <h2 className="font-headline text-2xl font-bold tracking-wider">ALUMNI</h2>
+            </div>
+            <p className="font-mono text-sm text-on-surface-variant line-clamp-2">Manage alumni profiles, lab projects, internships, placements, and job details.</p>
+            <div className="mt-6 flex justify-between items-center text-outline text-[10px] font-mono">
+              <span>{alumni?.length || 0} Profiles</span>
+              <span className="group-hover:text-primary transition-colors">ACCESS &rarr;</span>
+            </div>
+          </div>
+
           {/* Attendance Stats Overview */}
           <div className="md:col-span-3 bg-surface-container-low p-6 rounded border ghost-border transition-all">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
@@ -1989,6 +2165,28 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
               >
                 <span className="material-symbols-outlined text-sm">schedule</span>
                 {isSavingAttendanceCutoff ? 'SAVING...' : 'SAVE CUTOFF'}
+              </button>
+            </form>
+
+            <form onSubmit={handleSaveDailyWorkSettings} className="mb-6 bg-background border border-outline/20 rounded p-4 flex flex-col sm:flex-row sm:items-end gap-3">
+              <div className="flex-1">
+                <label className="text-outline block mb-1 font-mono text-xs uppercase">Daily Work Update Opens (IST)</label>
+                <input
+                  type="time"
+                  value={dailyWorkUpdateStart}
+                  onChange={(e) => setDailyWorkUpdateStart(e.target.value)}
+                  required
+                  className="w-full sm:w-44 bg-surface-container-low border border-outline/30 rounded p-2 text-on-surface focus:border-primary focus:outline-none font-mono text-sm"
+                />
+                <p className="mt-2 font-mono text-[11px] text-outline">Students can submit daily work only after this time.</p>
+              </div>
+              <button
+                type="submit"
+                disabled={isSavingDailyWorkUpdateStart}
+                className="bg-secondary/20 text-secondary border border-secondary/40 rounded px-4 py-2 font-mono text-xs font-bold hover:bg-secondary/30 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                <span className="material-symbols-outlined text-sm">edit_calendar</span>
+                {isSavingDailyWorkUpdateStart ? 'SAVING...' : 'SAVE WORK TIME'}
               </button>
             </form>
 
@@ -2298,6 +2496,115 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
           </div>
         </div>
         </>
+      )}
+
+      {/* ALUMNI VIEW */}
+      {activeAdminView === 'alumni-list' && (
+        <div className="flex flex-col gap-6">
+          <div className="bg-surface-container-low p-6 rounded border ghost-border">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-5">
+              <div>
+                <div className="flex items-center gap-3 text-primary-container">
+                  <span className="material-symbols-outlined text-3xl">workspace_premium</span>
+                  <h2 className="font-headline text-2xl font-bold tracking-wider">ALUMNI DIRECTORY</h2>
+                </div>
+                <p className="font-mono text-sm text-on-surface-variant mt-2">Add placement, internship, job, and lab project history shown in the public alumni page.</p>
+              </div>
+              {editingAlumniId && (
+                <button type="button" onClick={resetAlumniForm} className="self-start lg:self-auto border border-outline/30 text-outline hover:text-primary hover:border-primary/40 rounded px-4 py-2 font-mono text-xs font-bold">
+                  CLEAR EDIT
+                </button>
+              )}
+            </div>
+
+            <form onSubmit={handleAlumniSubmit} className="grid grid-cols-1 lg:grid-cols-4 gap-4 font-mono text-xs">
+              <label className="lg:col-span-2">
+                <span className="text-outline uppercase">Name</span>
+                <input name="name" value={alumniFormData.name} onChange={handleAlumniChange} required className="mt-1 w-full bg-background border border-outline/30 rounded p-2 text-on-surface focus:border-primary focus:outline-none" />
+              </label>
+              <label>
+                <span className="text-outline uppercase">Batch / Year</span>
+                <input name="batch_year" value={alumniFormData.batch_year} onChange={handleAlumniChange} className="mt-1 w-full bg-background border border-outline/30 rounded p-2 text-on-surface focus:border-primary focus:outline-none" placeholder="2025" />
+              </label>
+              <label>
+                <span className="text-outline uppercase">Image URL</span>
+                <input name="image" value={alumniFormData.image} onChange={handleAlumniChange} className="mt-1 w-full bg-background border border-outline/30 rounded p-2 text-on-surface focus:border-primary focus:outline-none" />
+              </label>
+              <label className="lg:col-span-2">
+                <span className="text-outline uppercase">Project Did In Lab</span>
+                <input name="project_title" value={alumniFormData.project_title} onChange={handleAlumniChange} className="mt-1 w-full bg-background border border-outline/30 rounded p-2 text-on-surface focus:border-primary focus:outline-none" />
+              </label>
+              <label>
+                <span className="text-outline uppercase">Current Company</span>
+                <input name="current_company" value={alumniFormData.current_company} onChange={handleAlumniChange} className="mt-1 w-full bg-background border border-outline/30 rounded p-2 text-on-surface focus:border-primary focus:outline-none" />
+              </label>
+              <label>
+                <span className="text-outline uppercase">Current Role</span>
+                <input name="current_role" value={alumniFormData.current_role} onChange={handleAlumniChange} className="mt-1 w-full bg-background border border-outline/30 rounded p-2 text-on-surface focus:border-primary focus:outline-none" />
+              </label>
+              <label className="lg:col-span-2">
+                <span className="text-outline uppercase">Project Details</span>
+                <textarea name="project_details" value={alumniFormData.project_details} onChange={handleAlumniChange} rows={4} className="mt-1 w-full bg-background border border-outline/30 rounded p-2 text-on-surface focus:border-primary focus:outline-none" />
+              </label>
+              <label className="lg:col-span-2">
+                <span className="text-outline uppercase">Internship Details</span>
+                <textarea name="internship_details" value={alumniFormData.internship_details} onChange={handleAlumniChange} rows={4} className="mt-1 w-full bg-background border border-outline/30 rounded p-2 text-on-surface focus:border-primary focus:outline-none" />
+              </label>
+              <label className="lg:col-span-2">
+                <span className="text-outline uppercase">Job Details</span>
+                <textarea name="job_details" value={alumniFormData.job_details} onChange={handleAlumniChange} rows={4} className="mt-1 w-full bg-background border border-outline/30 rounded p-2 text-on-surface focus:border-primary focus:outline-none" />
+              </label>
+              <label>
+                <span className="text-outline uppercase">LinkedIn</span>
+                <input name="linkedin" value={alumniFormData.linkedin} onChange={handleAlumniChange} className="mt-1 w-full bg-background border border-outline/30 rounded p-2 text-on-surface focus:border-primary focus:outline-none" />
+              </label>
+              <label>
+                <span className="text-outline uppercase">Email</span>
+                <input name="email" type="email" value={alumniFormData.email} onChange={handleAlumniChange} className="mt-1 w-full bg-background border border-outline/30 rounded p-2 text-on-surface focus:border-primary focus:outline-none" />
+              </label>
+              <label className="lg:col-span-2">
+                <span className="text-outline uppercase">Notes</span>
+                <input name="notes" value={alumniFormData.notes} onChange={handleAlumniChange} className="mt-1 w-full bg-background border border-outline/30 rounded p-2 text-on-surface focus:border-primary focus:outline-none" />
+              </label>
+              <button type="submit" className="lg:col-span-4 bg-primary/20 text-primary border border-primary/40 rounded px-4 py-3 font-bold hover:bg-primary/30 transition-colors">
+                {editingAlumniId ? 'UPDATE ALUMNI PROFILE' : 'ADD ALUMNI PROFILE'}
+              </button>
+            </form>
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            {alumni.length === 0 ? (
+              <div className="xl:col-span-2 border border-outline/20 rounded p-8 text-center font-mono text-outline">No alumni profiles have been added yet.</div>
+            ) : alumni.map(record => (
+              <div key={record.id} className="bg-surface-container-low border border-outline/20 rounded p-5 hover:border-primary/30 transition-colors">
+                <div className="flex items-start gap-4">
+                  <div className="w-16 h-16 rounded overflow-hidden border border-outline/20 bg-background flex items-center justify-center shrink-0">
+                    {record.image ? <img src={record.image} alt={record.name} className="w-full h-full object-cover" /> : <span className="material-symbols-outlined text-outline text-3xl">person</span>}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <h3 className="font-headline text-xl font-bold text-on-surface truncate">{record.name}</h3>
+                    <div className="font-mono text-[10px] text-primary uppercase tracking-widest">{record.batch_year || 'Batch not set'}</div>
+                    <p className="font-mono text-sm text-on-surface-variant mt-2 line-clamp-2">{record.project_title || 'No lab project recorded'}</p>
+                  </div>
+                </div>
+                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3 font-mono text-xs">
+                  <div className="border border-outline/10 rounded p-3">
+                    <div className="text-outline uppercase">Current</div>
+                    <div className="text-primary mt-1">{[record.current_role, record.current_company].filter(Boolean).join(' / ') || 'Not updated'}</div>
+                  </div>
+                  <div className="border border-outline/10 rounded p-3">
+                    <div className="text-outline uppercase">Internship</div>
+                    <div className="text-on-surface-variant mt-1 line-clamp-2">{record.internship_details || 'Not updated'}</div>
+                  </div>
+                </div>
+                <div className="mt-4 flex flex-wrap justify-end gap-2">
+                  <button onClick={() => handleEditAlumni(record)} className="text-primary hover:bg-primary/10 px-3 py-1.5 rounded border border-primary/20 font-mono text-xs">EDIT</button>
+                  <button onClick={() => handleDeleteAlumni(record)} className="text-error hover:bg-error/10 px-3 py-1.5 rounded border border-error/20 font-mono text-xs">DELETE</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
       {/* LAB PLAN VIEW */}
