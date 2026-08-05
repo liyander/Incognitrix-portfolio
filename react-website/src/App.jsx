@@ -26,6 +26,7 @@ function App() {
   const [individuals, setIndividuals] = useState([]);
   const [activeHeroIndex, setActiveHeroIndex] = useState(0);
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(true);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const mainRef = useRef(null);
 
   const [isAutoMode, setIsAutoMode] = useState(false);
@@ -219,6 +220,85 @@ function App() {
     { view: 'cves', label: 'CVEs', icon: 'bug_report', meta: 'CVE' },
     { view: 'upcoming-ctfs', label: 'CTFs', icon: 'flag', meta: 'Events' }
   ], [projects.length, individuals.length]);
+  const activeShellItem = sideNavItems.find(item => (
+    item.view === 'portal'
+      ? view === 'portal' && !selectedProject
+      : item.view === 'individuals'
+        ? view === 'individuals' || view === 'individual-profile'
+        : view === item.view
+  ));
+
+  const handleSideNavSelect = (item) => {
+    setView(item.view);
+    setIsMobileSidebarOpen(false);
+    if (item.view !== 'portal') setSelectedProject(null);
+    if (item.view !== 'individuals') setSelectedIndividualId(null);
+  };
+
+  const renderSidebar = (isMobile = false) => (
+    <>
+      <div className={`flex items-center gap-2 py-2 ${isSidebarExpanded || isMobile ? 'justify-between px-2' : 'justify-center'}`}>
+        {(isSidebarExpanded || isMobile) && (
+          <div>
+            <div className="font-mono text-[10px] text-outline uppercase tracking-widest">Navigation</div>
+            <div className="font-mono text-[9px] text-primary/70 uppercase tracking-widest mt-0.5">{sideNavItems.length} modules</div>
+          </div>
+        )}
+        {!isMobile && (
+          <button
+            type="button"
+            onClick={() => setIsSidebarExpanded(prev => !prev)}
+            className="w-10 h-10 rounded border border-outline/30 text-outline hover:text-primary hover:border-primary/40 flex items-center justify-center transition-colors"
+            title={isSidebarExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
+            aria-label={isSidebarExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
+          >
+            <span className="material-symbols-outlined text-[18px]">{isSidebarExpanded ? 'left_panel_close' : 'left_panel_open'}</span>
+          </button>
+        )}
+        {isMobile && (
+          <button
+            type="button"
+            onClick={() => setIsMobileSidebarOpen(false)}
+            className="w-10 h-10 rounded border border-outline/30 text-outline hover:text-primary hover:border-primary/40 flex items-center justify-center transition-colors"
+            aria-label="Close navigation"
+          >
+            <span className="material-symbols-outlined text-[18px]">close</span>
+          </button>
+        )}
+      </div>
+      <div className="flex flex-col gap-1.5">
+        {sideNavItems.map(item => {
+          const active = item.view === 'portal'
+            ? view === 'portal' && !selectedProject
+            : item.view === 'individuals'
+              ? view === 'individuals' || view === 'individual-profile'
+              : view === item.view;
+          const showLabels = isSidebarExpanded || isMobile;
+          return (
+            <button
+              key={item.view}
+              title={item.label}
+              onClick={() => handleSideNavSelect(item)}
+              className={`group relative w-full flex items-center rounded border py-3 font-mono text-xs uppercase tracking-widest transition-all ${showLabels ? 'gap-3 px-3 text-left' : 'justify-center px-0'} ${active ? 'bg-primary/15 text-primary border-primary/30 shadow-[inset_3px_0_0_rgba(0,245,255,0.9)]' : 'text-outline border-transparent hover:text-primary hover:bg-primary/5'}`}
+            >
+              <span className="material-symbols-outlined text-[18px] shrink-0">{item.icon}</span>
+              {showLabels && (
+                <>
+                  <span className="truncate flex-1">{item.label}</span>
+                  <span className={`text-[9px] rounded px-1.5 py-0.5 border ${active ? 'border-primary/30 text-primary' : 'border-outline/20 text-outline/70'}`}>{item.meta}</span>
+                </>
+              )}
+              {!showLabels && (
+                <span className="pointer-events-none absolute left-full ml-3 rounded border border-outline/20 bg-surface-container px-2 py-1 text-[10px] text-on-surface opacity-0 shadow-lg transition-opacity group-hover:opacity-100 whitespace-nowrap">
+                  {item.label}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </>
+  );
 
   const parseJsonArray = (value) => {
     if (!value) return [];
@@ -511,87 +591,83 @@ function App() {
       {/* Navigation Bar */}
       <header className="relative w-full border-b ghost-border bg-surface-dim border-outline-variant/80 backdrop-blur-md z-50 shrink-0">
         <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-primary/50 to-transparent"></div>
-        <div className="max-w-7xl mx-auto px-6 md:px-12 py-4 flex items-center justify-between">
-          <div className="flex items-center">
-              <span className="font-headline font-bold tracking-widest text-on-surface text-lg uppercase jarvis-text hologram">Incognitrix lab</span>
+        <div className="px-4 md:px-6 py-3 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3 min-w-0">
+            <button
+              type="button"
+              onClick={() => setIsMobileSidebarOpen(true)}
+              className="md:hidden w-10 h-10 rounded border border-outline/30 text-outline hover:text-primary hover:border-primary/40 flex items-center justify-center transition-colors"
+              aria-label="Open navigation"
+            >
+              <span className="material-symbols-outlined text-[20px]">menu</span>
+            </button>
+            <div className="min-w-0">
+              <span className="block font-headline font-bold tracking-widest text-on-surface text-base md:text-lg uppercase jarvis-text hologram truncate">Incognitrix lab</span>
+              <div className="flex items-center gap-2 mt-0.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-primary shadow-[0_0_8px_rgba(0,245,255,0.8)]"></span>
+                <span className="font-mono text-[10px] text-outline uppercase tracking-widest truncate">{activeShellItem?.label || selectedProject?.title || view}</span>
+              </div>
+            </div>
           </div>
-          <nav className="hidden md:flex space-x-6 items-center">
+          <nav className="flex items-center gap-2 md:gap-3">
             <button
               onClick={() => { setView('attendance'); setSelectedProject(null); }}
-              className={`font-mono text-xs tracking-widest mr-4 pb-1 transition-colors ${view === 'attendance' ? 'text-primary-container border-b-2 border-primary-container' : 'text-outline hover:text-primary-container'}`}
+              className={`h-10 px-3 rounded border font-mono text-[10px] md:text-xs tracking-widest uppercase transition-colors flex items-center gap-2 ${view === 'attendance' ? 'bg-primary/15 text-primary border-primary/40' : 'text-outline border-outline/20 hover:text-primary hover:border-primary/40'}`}
             >
-              ATTENDANCE
+              <span className="material-symbols-outlined text-[16px] hidden sm:inline">how_to_reg</span>
+              <span className="hidden sm:inline">Attendance</span>
+              <span className="sm:hidden">Att</span>
             </button>
             <button
               onClick={() => { setView('student'); setSelectedProject(null); }}
-              className={`font-mono text-xs tracking-widest mr-4 pb-1 transition-colors ${view === 'student' ? 'text-primary-container border-b-2 border-primary-container' : 'text-outline hover:text-primary-container'}`}
+              className={`h-10 px-3 rounded border font-mono text-[10px] md:text-xs tracking-widest uppercase transition-colors flex items-center gap-2 ${view === 'student' ? 'bg-secondary/15 text-secondary border-secondary/40' : 'text-outline border-outline/20 hover:text-secondary hover:border-secondary/40'}`}
             >
-              STUDENT
+              <span className="material-symbols-outlined text-[16px] hidden sm:inline">school</span>
+              <span className="hidden sm:inline">Student</span>
+              <span className="sm:hidden">Stu</span>
             </button>
             <button
               onClick={() => setView('admin')}
-              className={`font-mono text-xs font-bold px-3 py-1 rounded transition-all ${view === 'admin' ? 'bg-primary text-on-primary-fixed' : 'border border-primary text-primary hover:bg-primary hover:text-on-primary-fixed'}`}
+              className={`h-10 px-3 rounded border font-mono text-[10px] md:text-xs font-bold tracking-widest uppercase transition-all flex items-center gap-2 ${view === 'admin' ? 'bg-primary text-on-primary-fixed border-primary' : 'border-primary/50 text-primary hover:bg-primary hover:text-on-primary-fixed'}`}
             >
-              ADMIN
+              <span className="material-symbols-outlined text-[16px] hidden sm:inline">admin_panel_settings</span>
+              Admin
             </button>
           </nav>
         </div>
       </header>
 
       <div className="flex-1 min-h-0 flex overflow-hidden">
-        <aside className={`hidden md:flex shrink-0 border-r border-outline-variant/50 bg-surface-dim/80 backdrop-blur-md z-40 flex-col p-3 gap-2 transition-[width] duration-300 ${isSidebarExpanded ? 'w-64' : 'w-20'}`}>
-          <div className={`flex items-center gap-2 py-2 ${isSidebarExpanded ? 'justify-between px-2' : 'justify-center'}`}>
-            {isSidebarExpanded && (
-              <div>
-                <div className="font-mono text-[10px] text-outline uppercase tracking-widest">Navigation</div>
-                <div className="font-mono text-[9px] text-primary/70 uppercase tracking-widest mt-0.5">{sideNavItems.length} modules</div>
-              </div>
-            )}
+        {isMobileSidebarOpen && (
+          <div className="fixed inset-0 z-[70] md:hidden">
             <button
               type="button"
-              onClick={() => setIsSidebarExpanded(prev => !prev)}
-              className="w-10 h-10 rounded border border-outline/30 text-outline hover:text-primary hover:border-primary/40 flex items-center justify-center transition-colors"
-              title={isSidebarExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
-              aria-label={isSidebarExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
-            >
-              <span className="material-symbols-outlined text-[18px]">{isSidebarExpanded ? 'left_panel_close' : 'left_panel_open'}</span>
-            </button>
+              className="absolute inset-0 bg-background/80 backdrop-blur-sm"
+              onClick={() => setIsMobileSidebarOpen(false)}
+              aria-label="Close navigation overlay"
+            ></button>
+            <aside className="relative z-10 h-full w-[min(320px,86vw)] border-r border-outline-variant/50 bg-surface-dim p-4 flex flex-col gap-2 shadow-2xl">
+              {renderSidebar(true)}
+            </aside>
           </div>
-          {sideNavItems.map(item => {
-            const active = item.view === 'portal'
-              ? view === 'portal' && !selectedProject
-              : item.view === 'individuals'
-                ? view === 'individuals' || view === 'individual-profile'
-                : view === item.view;
-            return (
-              <button
-                key={item.view}
-                title={item.label}
-                onClick={() => {
-                  setView(item.view);
-                  if (item.view !== 'portal') setSelectedProject(null);
-                  if (item.view !== 'individuals') setSelectedIndividualId(null);
-                }}
-                className={`group relative w-full flex items-center rounded border py-3 font-mono text-xs uppercase tracking-widest transition-colors ${isSidebarExpanded ? 'gap-3 px-3 text-left' : 'justify-center px-0'} ${active ? 'bg-primary/15 text-primary border-primary/30' : 'text-outline border-transparent hover:text-primary hover:bg-primary/5'}`}
-              >
-                <span className="material-symbols-outlined text-[18px] shrink-0">{item.icon}</span>
-                {isSidebarExpanded && (
-                  <>
-                    <span className="truncate flex-1">{item.label}</span>
-                    <span className={`text-[9px] rounded px-1.5 py-0.5 border ${active ? 'border-primary/30 text-primary' : 'border-outline/20 text-outline/70'}`}>{item.meta}</span>
-                  </>
-                )}
-                {!isSidebarExpanded && (
-                  <span className="pointer-events-none absolute left-full ml-3 rounded border border-outline/20 bg-surface-container px-2 py-1 text-[10px] text-on-surface opacity-0 shadow-lg transition-opacity group-hover:opacity-100 whitespace-nowrap">
-                    {item.label}
-                  </span>
-                )}
-              </button>
-            );
-          })}
+        )}
+        <aside className={`hidden md:flex shrink-0 border-r border-outline-variant/50 bg-surface-dim/80 backdrop-blur-md z-40 flex-col p-3 gap-2 transition-[width] duration-300 ${isSidebarExpanded ? 'w-64' : 'w-20'}`}>
+          {renderSidebar()}
         </aside>
 
-      <main ref={mainRef} className="flex-1 w-full overflow-y-auto">
+      <main ref={mainRef} className="flex-1 w-full overflow-y-auto scroll-smooth">
+        {!['admin', 'attendance', 'student'].includes(view) && (
+          <div className="sticky top-0 z-30 border-b border-outline/10 bg-background/80 backdrop-blur-md px-4 md:px-6 py-2.5 flex items-center justify-between">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="material-symbols-outlined text-primary text-[18px]">{activeShellItem?.icon || 'inventory_2'}</span>
+              <span className="font-mono text-[10px] md:text-xs uppercase tracking-widest text-on-surface truncate">{selectedProject?.title || activeShellItem?.label || 'Products'}</span>
+            </div>
+            <div className="hidden sm:flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-outline">
+              <span className="w-1.5 h-1.5 rounded-full bg-secondary"></span>
+              DB {useDatabase ? 'Active' : 'Sheet'}
+            </div>
+          </div>
+        )}
         {view === 'admin' ? (
           adminUser ? (
             <AdminPanel onBack={() => setView('portal')} adminUser={adminUser} onLogout={() => {
