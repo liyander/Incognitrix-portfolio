@@ -25,6 +25,7 @@ function App() {
   const [dbProjects, setDbProjects] = useState([]);
   const [individuals, setIndividuals] = useState([]);
   const [activeHeroIndex, setActiveHeroIndex] = useState(0);
+  const [isSidebarExpanded, setIsSidebarExpanded] = useState(true);
   const mainRef = useRef(null);
 
   const [isAutoMode, setIsAutoMode] = useState(false);
@@ -209,15 +210,15 @@ function App() {
 
   const activeHeroProject = projects[activeHeroIndex] || null;
   const defaultImage = "https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=2072&auto=format&fit=crop";
-  const sideNavItems = [
-    { view: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
-    { view: 'portal', label: 'Products', icon: 'inventory_2' },
-    { view: 'teams', label: 'Teams', icon: 'groups' },
-    { view: 'individuals', label: 'Individuals', icon: 'badge' },
-    { view: 'achievements', label: 'Achievements', icon: 'military_tech' },
-    { view: 'cves', label: 'CVEs', icon: 'bug_report' },
-    { view: 'upcoming-ctfs', label: 'CTFs', icon: 'flag' }
-  ];
+  const sideNavItems = useMemo(() => [
+    { view: 'dashboard', label: 'Dashboard', icon: 'dashboard', meta: 'Live' },
+    { view: 'portal', label: 'Products', icon: 'inventory_2', meta: String(projects.length || 0) },
+    { view: 'teams', label: 'Teams', icon: 'groups', meta: 'Ops' },
+    { view: 'individuals', label: 'Individuals', icon: 'badge', meta: String(individuals.length || 0) },
+    { view: 'achievements', label: 'Achievements', icon: 'military_tech', meta: 'Intel' },
+    { view: 'cves', label: 'CVEs', icon: 'bug_report', meta: 'CVE' },
+    { view: 'upcoming-ctfs', label: 'CTFs', icon: 'flag', meta: 'Events' }
+  ], [projects.length, individuals.length]);
 
   const parseJsonArray = (value) => {
     if (!value) return [];
@@ -538,8 +539,24 @@ function App() {
       </header>
 
       <div className="flex-1 min-h-0 flex overflow-hidden">
-        <aside className="hidden md:flex w-60 shrink-0 border-r border-outline-variant/50 bg-surface-dim/80 backdrop-blur-md z-40 flex-col p-4 gap-2">
-          <div className="font-mono text-[10px] text-outline uppercase tracking-widest px-3 py-2">Navigation</div>
+        <aside className={`hidden md:flex shrink-0 border-r border-outline-variant/50 bg-surface-dim/80 backdrop-blur-md z-40 flex-col p-3 gap-2 transition-[width] duration-300 ${isSidebarExpanded ? 'w-64' : 'w-20'}`}>
+          <div className={`flex items-center gap-2 py-2 ${isSidebarExpanded ? 'justify-between px-2' : 'justify-center'}`}>
+            {isSidebarExpanded && (
+              <div>
+                <div className="font-mono text-[10px] text-outline uppercase tracking-widest">Navigation</div>
+                <div className="font-mono text-[9px] text-primary/70 uppercase tracking-widest mt-0.5">{sideNavItems.length} modules</div>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => setIsSidebarExpanded(prev => !prev)}
+              className="w-10 h-10 rounded border border-outline/30 text-outline hover:text-primary hover:border-primary/40 flex items-center justify-center transition-colors"
+              title={isSidebarExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
+              aria-label={isSidebarExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
+            >
+              <span className="material-symbols-outlined text-[18px]">{isSidebarExpanded ? 'left_panel_close' : 'left_panel_open'}</span>
+            </button>
+          </div>
           {sideNavItems.map(item => {
             const active = item.view === 'portal'
               ? view === 'portal' && !selectedProject
@@ -549,15 +566,26 @@ function App() {
             return (
               <button
                 key={item.view}
+                title={item.label}
                 onClick={() => {
                   setView(item.view);
                   if (item.view !== 'portal') setSelectedProject(null);
                   if (item.view !== 'individuals') setSelectedIndividualId(null);
                 }}
-                className={`w-full flex items-center gap-3 rounded px-3 py-3 text-left font-mono text-xs uppercase tracking-widest transition-colors ${active ? 'bg-primary/15 text-primary border border-primary/30' : 'text-outline border border-transparent hover:text-primary hover:bg-primary/5'}`}
+                className={`group relative w-full flex items-center rounded border py-3 font-mono text-xs uppercase tracking-widest transition-colors ${isSidebarExpanded ? 'gap-3 px-3 text-left' : 'justify-center px-0'} ${active ? 'bg-primary/15 text-primary border-primary/30' : 'text-outline border-transparent hover:text-primary hover:bg-primary/5'}`}
               >
-                <span className="material-symbols-outlined text-[18px]">{item.icon}</span>
-                {item.label}
+                <span className="material-symbols-outlined text-[18px] shrink-0">{item.icon}</span>
+                {isSidebarExpanded && (
+                  <>
+                    <span className="truncate flex-1">{item.label}</span>
+                    <span className={`text-[9px] rounded px-1.5 py-0.5 border ${active ? 'border-primary/30 text-primary' : 'border-outline/20 text-outline/70'}`}>{item.meta}</span>
+                  </>
+                )}
+                {!isSidebarExpanded && (
+                  <span className="pointer-events-none absolute left-full ml-3 rounded border border-outline/20 bg-surface-container px-2 py-1 text-[10px] text-on-surface opacity-0 shadow-lg transition-opacity group-hover:opacity-100 whitespace-nowrap">
+                    {item.label}
+                  </span>
+                )}
               </button>
             );
           })}
