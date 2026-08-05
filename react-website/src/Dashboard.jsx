@@ -232,6 +232,21 @@ function Dashboard({ useDatabase }) {
     participation: 'text-primary-container',
     info: 'text-emerald-400'
   };
+  const dashboardMetrics = [
+    { label: 'Operatives', value: summary?.totalStudents || students.length || 0, icon: 'groups' },
+    { label: 'Products', value: summary?.activeStudyPaths || projects.length || 0, icon: 'hub' },
+    { label: 'Achievements', value: summary?.totalAchievements || recentAchievements.length || 0, icon: 'military_tech' },
+    { label: 'CVEs', value: summary?.totalCves || recentCves.length || 0, icon: 'security' },
+    { label: 'Teams', value: summary?.totalTeams || teams.length || 0, icon: 'account_tree' },
+    { label: 'Active CTFs', value: activeCtfParticipations.length || 0, icon: 'flag' },
+    { label: 'Highlights', value: dashboardHighlights.length || 0, icon: 'campaign' }
+  ];
+  const maxMetricValue = Math.max(...dashboardMetrics.map(metric => Number(metric.value) || 0), 1);
+  const teamDistribution = teams.map(team => ({
+    name: team.name,
+    count: students.filter(student => String(student.teamName || student.team_name || '').toLowerCase() === String(team.name || '').toLowerCase()).length
+  })).filter(team => team.count > 0).slice(0, 6);
+  const maxTeamCount = Math.max(...teamDistribution.map(team => team.count), 1);
 
   if (loading) {
     return (
@@ -293,45 +308,58 @@ function Dashboard({ useDatabase }) {
         )}
       </section>
 
-      {/* Top Metrics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-surface-container-low p-6 rounded border ghost-border relative overflow-hidden flex flex-col items-center text-center">
-          <div className="absolute top-0 w-full h-1 bg-gradient-to-r from-transparent via-primary-container to-transparent opacity-50"></div>
-          <span className="material-symbols-outlined text-primary-container text-4xl mb-2">groups</span>
-          <h3 className="font-mono text-xs uppercase tracking-widest text-outline mb-1">Total Operatives</h3>
-          <span className="font-headline text-5xl font-bold text-on-surface">
-            {summary?.totalStudents || students.length || 0}
-          </span>
+      <section className="bg-surface-container-low border ghost-border rounded p-5 md:p-6 relative overflow-hidden">
+        <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-primary via-secondary to-emerald-400 opacity-80"></div>
+        <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-6">
+          <div className="lg:w-72 shrink-0">
+            <div className="font-mono text-[10px] text-outline uppercase tracking-widest">Metrics</div>
+            <h2 className="font-headline text-2xl font-bold text-on-surface mt-1">Operational Snapshot</h2>
+            <p className="font-mono text-xs text-on-surface-variant mt-3 leading-relaxed">Visual readout across personnel, products, achievements, research signals, teams, and active event activity.</p>
+          </div>
+          <div className="flex-1 grid grid-cols-1 xl:grid-cols-[1.35fr_1fr] gap-5">
+            <div className="space-y-3">
+              {dashboardMetrics.map(metric => {
+                const width = Math.max(6, Math.round(((Number(metric.value) || 0) / maxMetricValue) * 100));
+                return (
+                  <div key={metric.label} className="grid grid-cols-[150px_1fr_54px] items-center gap-3 font-mono text-xs">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="material-symbols-outlined text-primary text-[17px] shrink-0">{metric.icon}</span>
+                      <span className="text-outline uppercase truncate">{metric.label}</span>
+                    </div>
+                    <div className="h-3 rounded bg-background border border-outline/10 overflow-hidden">
+                      <div className="h-full rounded bg-gradient-to-r from-primary/70 to-secondary/80" style={{ width: `${width}%` }}></div>
+                    </div>
+                    <div className="text-right text-on-surface font-bold">{metric.value}</div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="border border-outline/20 rounded p-4 bg-background/60">
+              <div className="font-mono text-[10px] text-outline uppercase tracking-widest mb-4">Team Distribution</div>
+              {teamDistribution.length === 0 ? (
+                <div className="font-mono text-xs text-outline">No team distribution data available.</div>
+              ) : (
+                <div className="space-y-3">
+                  {teamDistribution.map(team => {
+                    const width = Math.max(8, Math.round((team.count / maxTeamCount) * 100));
+                    return (
+                      <div key={team.name} className="font-mono text-xs">
+                        <div className="flex justify-between gap-3 mb-1">
+                          <span className="text-on-surface truncate">{team.name}</span>
+                          <span className="text-primary">{team.count}</span>
+                        </div>
+                        <div className="h-2 rounded bg-surface-container border border-outline/10 overflow-hidden">
+                          <div className="h-full rounded bg-emerald-400/70" style={{ width: `${width}%` }}></div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
-        
-        <div className="bg-surface-container-low p-6 rounded border ghost-border relative overflow-hidden flex flex-col items-center text-center">
-          <div className="absolute top-0 w-full h-1 bg-gradient-to-r from-transparent via-emerald-400 to-transparent opacity-50"></div>
-          <span className="material-symbols-outlined text-emerald-400 text-4xl mb-2">security</span>
-          <h3 className="font-mono text-xs uppercase tracking-widest text-outline mb-1">Total CVEs</h3>
-          <span className="font-headline text-5xl font-bold text-on-surface">
-            {summary?.totalCves || 0}
-          </span>
-        </div>
-
-        <div className="bg-surface-container-low p-6 rounded border ghost-border relative overflow-hidden flex flex-col items-center text-center">
-          <div className="absolute top-0 w-full h-1 bg-gradient-to-r from-transparent via-blue-500 to-transparent opacity-50"></div>
-          <span className="material-symbols-outlined text-blue-500 text-4xl mb-2">hub</span>
-          <h3 className="font-mono text-xs uppercase tracking-widest text-outline mb-1">Total Products</h3>
-          <span className="font-headline text-5xl font-bold text-on-surface">
-            {summary?.activeStudyPaths || 0}
-          </span>
-        </div>
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mt-0">
-        <div className="bg-surface-container-low p-6 rounded border ghost-border relative overflow-hidden flex flex-col items-center text-center col-span-1 md:col-start-2 md:col-span-2">
-          <div className="absolute top-0 w-full h-1 bg-gradient-to-r from-transparent via-purple-500 to-transparent opacity-50"></div>
-          <span className="material-symbols-outlined text-purple-500 text-4xl mb-2">military_tech</span>
-          <h3 className="font-mono text-xs uppercase tracking-widest text-outline mb-1">Total Achievements</h3>
-          <span className="font-headline text-5xl font-bold text-on-surface">
-            {summary?.totalAchievements ?? Math.floor((summary?.totalCertificates || 0) * 1.5)}
-          </span>
-        </div>
-      </div>
+      </section>
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
         {(scheduleSlots.length > 0 || breakSlots.length > 0 || scheduleLines.length > 0 || targetLines.length > 0) && (
           <section className="xl:col-span-12 bg-surface-container-low p-6 rounded border ghost-border relative overflow-hidden">

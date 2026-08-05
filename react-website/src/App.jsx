@@ -315,7 +315,7 @@ function App() {
   const renderProductList = () => (
     <div className="animate-fade-slide">
       {activeHeroProject && (
-        <div className="relative w-full h-[512px] min-h-[400px] flex flex-col justify-end p-8 md:p-12 border-b ghost-border mb-12 overflow-hidden group">
+        <div className="relative w-full min-h-[430px] flex flex-col justify-end p-6 md:p-10 border-b ghost-border mb-10 overflow-hidden group">
           <div className="absolute inset-0 z-0 overflow-hidden transition-all duration-1000 ease-in-out">
             <img 
               alt={activeHeroProject.title} 
@@ -331,12 +331,12 @@ function App() {
                 <span className="h-2 w-2 bg-primary-container rounded-full animate-pulse shadow-[0_0_8px_rgba(0,245,255,0.8)]"></span>
                 <span className="font-mono text-xs tracking-widest text-primary-container uppercase jarvis-text">PRIORITY: {activeHeroProject.priority || 'ALPHA'}</span>
               </div>
-              <h1 className="font-headline font-black text-5xl md:text-7xl text-on-surface tracking-tighter mb-2 transition-all jarvis-text">{activeHeroProject.title}</h1>
-              <p className="font-mono text-sm text-on-surface-variant max-w-xl leading-relaxed line-clamp-3">
+              <h1 className="font-headline font-black text-4xl md:text-5xl lg:text-6xl text-on-surface tracking-tight leading-[0.95] mb-4 transition-all jarvis-text break-words max-w-5xl">{activeHeroProject.title}</h1>
+              <p className="font-mono text-sm text-on-surface-variant max-w-2xl leading-relaxed line-clamp-3">
                 {activeHeroProject.description || activeHeroProject.shortDesc}
               </p>
             </div>
-            <div className="flex flex-col items-end space-y-4 bg-surface-dim border-outline-variant/60 backdrop-blur-md p-4 rounded border ghost-border group-hover:border-primary-container/30 transition-colors">
+            <div className="w-full md:w-auto flex flex-row md:flex-col justify-between md:items-end gap-4 bg-surface-dim/90 border-outline-variant/60 backdrop-blur-md p-4 rounded border ghost-border group-hover:border-primary-container/30 transition-colors">
               <div className="text-right">
                 <div className="font-mono text-[10px] text-outline mb-1">NETWORK STATUS</div>
                 <div className="font-mono text-sm text-primary">SECURE / {activeHeroProject.status === 'ONGOING' ? '99.9%' : '100%'} UPTIME</div>
