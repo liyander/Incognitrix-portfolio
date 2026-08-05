@@ -561,10 +561,10 @@ function App() {
                   className="flex items-center gap-4 group p-2 -m-2 hover:bg-surface-bright rounded hover:cursor-pointer transition-colors"
                 >
                   <div className="w-10 h-10 rounded bg-surface-dim border-outline-variant-highest dark:bg-surface-dim border-outline-variant-low flex items-center justify-center overflow-hidden ghost-border">
-                    {op.avatar ? (
-                      <img 
-                        src={op.avatar} 
-                        alt={op.name} 
+                    {op.image || op.avatar ? (
+                      <img
+                        src={op.image || op.avatar}
+                        alt={op.name}
                         className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all"
                       />
                     ) : (

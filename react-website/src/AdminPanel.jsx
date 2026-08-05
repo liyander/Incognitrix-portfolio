@@ -13,6 +13,7 @@ const CTF_PARTICIPATIONS_API_URL = '/api/ctf-participations';
 const LAB_PLANS_API_URL = '/api/admin/lab-plans';
 const DASHBOARD_HIGHLIGHTS_API_URL = '/api/admin/dashboard-highlights';
 const ADMIN_ALUMNI_API_URL = '/api/admin/alumni';
+const PROFILE_IMAGE_REQUESTS_API_URL = '/api/admin/profile-image-requests';
 
 const readJsonResponse = async (response) => {
   const contentType = response.headers.get('content-type') || '';
@@ -110,6 +111,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
   const [labPlans, setLabPlans] = useState([]);
   const [dashboardHighlights, setDashboardHighlights] = useState([]);
   const [alumni, setAlumni] = useState([]);
+  const [profileImageRequests, setProfileImageRequests] = useState([]);
   const [attendanceStats, setAttendanceStats] = useState([]);
   const [guestAttendance, setGuestAttendance] = useState([]);
   const [attendanceRequests, setAttendanceRequests] = useState([]);
@@ -261,6 +263,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
     fetchAttendanceSettings();
     fetchDailyWorkSettings();
     fetchAlumni();
+    fetchProfileImageRequests();
   }, []);
 
   const fetchUpcomingCtfs = async () => {
@@ -326,6 +329,18 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
       setAlumni(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error('Failed to fetch alumni', err);
+    }
+  };
+
+  const fetchProfileImageRequests = async () => {
+    try {
+      const response = await fetch(PROFILE_IMAGE_REQUESTS_API_URL, {
+        headers: getAdminHeaders()
+      });
+      const data = await readJsonResponse(response);
+      setProfileImageRequests(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('Failed to fetch profile image requests', err);
     }
   };
 
@@ -989,6 +1004,31 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
     } catch (err) {
       console.error('Failed to delete alumni', err);
       showAlert('Failed to delete alumni. Check console.', 'error');
+    }
+  };
+
+  const handleReviewProfileImage = async (request, action) => {
+    const confirmed = await showConfirm(
+      `${action === 'approve' ? 'Approve' : 'Reject'} profile image update for ${request.name || request.username}?`,
+      'Review Profile Image'
+    );
+    if (!confirmed) return;
+    try {
+      const response = await fetch(`${PROFILE_IMAGE_REQUESTS_API_URL}/${request.id}/review`, {
+        method: 'PUT',
+        headers: getAdminHeaders(true),
+        body: JSON.stringify({ action })
+      });
+      const data = await readJsonResponse(response);
+      if (!response.ok) {
+        showAlert(data?.error || 'Failed to review profile image request.', 'error');
+        return;
+      }
+      showAlert(data?.message || 'Profile image request reviewed.');
+      await Promise.all([fetchProfileImageRequests(), fetchIndividuals()]);
+    } catch (err) {
+      console.error('Failed to review profile image request', err);
+      showAlert('Failed to review profile image request. Check console.', 'error');
     }
   };
 
@@ -1972,6 +2012,7 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
         {activeAdminView === 'lab-plan' && "Set the daily schedule and weekly target visible to normal users."}
         {activeAdminView === 'dashboard-highlights' && "Publish recent achievements, participation, and info cards to the command dashboard."}
         {activeAdminView === 'alumni-list' && "Maintain alumni placements, internships, jobs, and lab project history."}
+        {activeAdminView === 'profile-image-requests' && "Approve student profile images before they appear across public pages."}
       </p>
 
       {/* DASHBOARD VIEW */}
@@ -2125,6 +2166,22 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
             <div className="mt-6 flex justify-between items-center text-outline text-[10px] font-mono">
               <span>{alumni?.length || 0} Profiles</span>
               <span className="group-hover:text-primary transition-colors">ACCESS &rarr;</span>
+            </div>
+          </div>
+
+          {/* Profile Images Card */}
+          <div
+            onClick={() => setActiveAdminView('profile-image-requests')}
+            className="group cursor-pointer bg-surface-container-low p-6 rounded border ghost-border hover:border-primary-container hover:shadow-[0_0_20px_rgba(0,245,255,0.15)] transition-all"
+          >
+            <div className="flex items-center gap-4 mb-4 text-primary-container group-hover:drop-shadow-[0_0_8px_rgba(0,245,255,0.8)]">
+              <span className="material-symbols-outlined text-3xl">account_circle</span>
+              <h2 className="font-headline text-2xl font-bold tracking-wider">PROFILE IMAGES</h2>
+            </div>
+            <p className="font-mono text-sm text-on-surface-variant line-clamp-2">Review student profile image requests before they become visible across directory, team, and profile pages.</p>
+            <div className="mt-6 flex justify-between items-center text-outline text-[10px] font-mono">
+              <span>{profileImageRequests?.length || 0} Pending</span>
+              <span className="group-hover:text-primary transition-colors">REVIEW &rarr;</span>
             </div>
           </div>
 
@@ -2496,6 +2553,71 @@ function AdminPanel({ onBack, adminUser, onLogout }) {
           </div>
         </div>
         </>
+      )}
+
+      {/* PROFILE IMAGE REQUESTS VIEW */}
+      {activeAdminView === 'profile-image-requests' && (
+        <div className="flex flex-col gap-6">
+          <div className="bg-surface-container-low p-6 rounded border ghost-border">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-3 text-primary-container">
+                  <span className="material-symbols-outlined text-3xl">account_circle</span>
+                  <h2 className="font-headline text-2xl font-bold tracking-wider">PROFILE IMAGE APPROVALS</h2>
+                </div>
+                <p className="font-mono text-sm text-on-surface-variant mt-2">Requested images stay hidden until approved here.</p>
+              </div>
+              <button onClick={fetchProfileImageRequests} className="self-start md:self-auto border border-outline/30 text-outline hover:text-primary hover:border-primary/40 rounded px-4 py-2 font-mono text-xs font-bold">
+                REFRESH
+              </button>
+            </div>
+          </div>
+
+          {profileImageRequests.length === 0 ? (
+            <div className="border border-outline/20 rounded p-10 text-center font-mono text-outline bg-background">
+              No pending profile image requests.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+              {profileImageRequests.map(request => (
+                <div key={request.id} className="bg-surface-container-low border border-outline/20 rounded p-5">
+                  <div className="flex items-start justify-between gap-4 mb-4">
+                    <div>
+                      <h3 className="font-headline text-xl font-bold text-on-surface">{request.name || request.username || 'Unknown individual'}</h3>
+                      <p className="font-mono text-[10px] text-outline uppercase tracking-widest mt-1">
+                        {request.department || 'No department'} / {request.role || 'Operative'}
+                      </p>
+                    </div>
+                    <span className="font-mono text-[10px] text-secondary uppercase border border-secondary/30 rounded px-2 py-1">Pending</span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <div className="font-mono text-[10px] text-outline uppercase mb-2">Current</div>
+                      <div className="aspect-square rounded border border-outline/20 bg-background overflow-hidden flex items-center justify-center">
+                        {request.current_image ? <img src={request.current_image} alt="Current profile" className="w-full h-full object-cover" /> : <span className="material-symbols-outlined text-outline text-5xl">person</span>}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="font-mono text-[10px] text-outline uppercase mb-2">Requested</div>
+                      <div className="aspect-square rounded border border-primary/30 bg-background overflow-hidden flex items-center justify-center">
+                        <img src={request.requested_image} alt="Requested profile" className="w-full h-full object-cover" />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 font-mono text-[10px] text-outline uppercase">
+                    Requested: {String(request.requested_at || '').slice(0, 19).replace('T', ' ')}
+                  </div>
+                  <div className="mt-5 flex flex-wrap justify-end gap-2">
+                    <button onClick={() => handleReviewProfileImage(request, 'reject')} className="text-error hover:bg-error/10 px-4 py-2 rounded border border-error/30 font-mono text-xs font-bold">REJECT</button>
+                    <button onClick={() => handleReviewProfileImage(request, 'approve')} className="text-primary hover:bg-primary/10 px-4 py-2 rounded border border-primary/30 font-mono text-xs font-bold">APPROVE</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       {/* ALUMNI VIEW */}

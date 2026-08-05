@@ -448,6 +448,21 @@ async function ensureRuntimeSchema() {
             )
         `);
         await pool.query(`
+            CREATE TABLE IF NOT EXISTS profile_image_requests (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                individual_id INT NOT NULL,
+                user_id VARCHAR(255) NOT NULL,
+                requested_image TEXT NOT NULL,
+                status VARCHAR(50) DEFAULT 'pending',
+                requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                reviewed_at TIMESTAMP NULL,
+                reviewed_by VARCHAR(255) NULL,
+                review_note TEXT,
+                INDEX profile_image_requests_individual_idx (individual_id),
+                INDEX profile_image_requests_status_idx (status)
+            )
+        `);
+        await pool.query(`
             UPDATE users u
             JOIN (
                 SELECT user_id, MIN(record_date) AS first_attendance_date
@@ -2800,6 +2815,71 @@ app.put('/api/admin/alumni/:id', requireAdmin, async (req, res) => {
     }
 });
 
+app.get('/api/admin/profile-image-requests', requireAdmin, async (req, res) => {
+    try {
+        const status = req.query.status || 'pending';
+        const [rows] = await pool.query(`
+            SELECT pir.*, i.name, i.image AS current_image, i.department, i.role, u.username
+            FROM profile_image_requests pir
+            LEFT JOIN individuals i ON i.id = pir.individual_id
+            LEFT JOIN users u ON CAST(u.id AS CHAR) = CAST(pir.user_id AS CHAR)
+            WHERE pir.status = ?
+            ORDER BY pir.requested_at DESC
+        `, [status]);
+        res.json(rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server error fetching profile image requests' });
+    }
+});
+
+app.put('/api/admin/profile-image-requests/:id/review', requireAdmin, async (req, res) => {
+    const action = String(req.body?.action || '').toLowerCase();
+    const reviewNote = String(req.body?.review_note || '').trim();
+    if (!['approve', 'reject'].includes(action)) {
+        return res.status(400).json({ error: 'Action must be approve or reject' });
+    }
+
+    let connection;
+    try {
+        connection = await pool.getConnection();
+        await connection.beginTransaction();
+
+        const [rows] = await connection.query(
+            'SELECT * FROM profile_image_requests WHERE id = ? AND status = "pending" LIMIT 1',
+            [req.params.id]
+        );
+        if (rows.length === 0) {
+            await connection.rollback();
+            return res.status(404).json({ error: 'Pending profile image request not found' });
+        }
+
+        const request = rows[0];
+        if (action === 'approve') {
+            await connection.query(
+                'UPDATE individuals SET image = ? WHERE id = ?',
+                [request.requested_image, request.individual_id]
+            );
+        }
+
+        await connection.query(
+            `UPDATE profile_image_requests
+             SET status = ?, reviewed_at = CURRENT_TIMESTAMP, reviewed_by = ?, review_note = ?
+             WHERE id = ?`,
+            [action === 'approve' ? 'approved' : 'rejected', req.admin?.username || 'admin', reviewNote, req.params.id]
+        );
+
+        await connection.commit();
+        res.json({ message: action === 'approve' ? 'Profile image approved.' : 'Profile image rejected.' });
+    } catch (err) {
+        if (connection) await connection.rollback();
+        console.error(err);
+        res.status(500).json({ error: 'Server error reviewing profile image request' });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
 app.delete('/api/admin/alumni/:id', requireAdmin, async (req, res) => {
     try {
         const [result] = await pool.query('DELETE FROM alumni WHERE id = ?', [req.params.id]);
@@ -3169,6 +3249,17 @@ app.get('/api/student/dashboard', requireStudent, async (req, res) => {
     try {
         const todayKey = formatDateKey(new Date());
         const userId = String(req.student.userId);
+        const requestedMonth = req.query.month || todayKey.slice(0, 7);
+        if (!/^\d{4}-\d{2}$/.test(requestedMonth)) {
+            return res.status(400).json({ error: 'Month must be in YYYY-MM format' });
+        }
+        const monthStart = `${requestedMonth}-01`;
+        const monthEndDate = new Date(`${monthStart}T00:00:00`);
+        monthEndDate.setMonth(monthEndDate.getMonth() + 1);
+        monthEndDate.setDate(0);
+        const monthEnd = formatDateKey(monthEndDate);
+        const calendarDates = getDateRange(monthStart, monthEnd).map(formatDateKey);
+        const statusEnd = requestedMonth === todayKey.slice(0, 7) && todayKey < monthEnd ? todayKey : monthEnd;
         const dailyWorkStartTime = await getDailyWorkUpdateStart();
         const canUpdateDailyWork = getCurrentTimeInAttendanceZoneSeconds() >= getCutoffTimeSeconds(dailyWorkStartTime);
         const [individualRows] = await pool.query(`
@@ -3191,6 +3282,10 @@ app.get('/api/student/dashboard', requireStudent, async (req, res) => {
         const [projectRows] = await pool.query('SELECT * FROM projects ORDER BY COALESCE(sort_order, 999999), id');
         const linkedProjects = projectRows.filter(project => isProjectLinkedToStudent(project, student));
         const [teamRows] = student.team_id ? await pool.query('SELECT * FROM teams WHERE id = ? LIMIT 1', [student.team_id]) : [[]];
+        const [pendingImageRows] = await pool.query(
+            'SELECT requested_image, requested_at FROM profile_image_requests WHERE individual_id = ? AND status = "pending" ORDER BY requested_at DESC LIMIT 1',
+            [student.id]
+        );
 
         const [certificateCountRows] = await pool.query('SELECT COUNT(*) as total FROM ctf_participation_teams WHERE JSON_SEARCH(members, "one", ?) IS NOT NULL', [student.name]);
         const rangeStartKey = earliestDateKey(student.user_created_at, student.created_at, todayKey) || todayKey;
@@ -3202,6 +3297,32 @@ app.get('/api/student/dashboard', requireStudent, async (req, res) => {
         const [odRows] = await pool.query(
             'SELECT od_date, reason FROM attendance_od WHERE user_id = ? AND od_date BETWEEN ? AND ?',
             [userId, rangeStartKey, todayKey]
+        );
+        const [monthAttendanceRows] = await pool.query(
+            `SELECT
+                attendance_date,
+                entry_at,
+                exit_at,
+                DATE_FORMAT(entry_at, '%H:%i') AS entry_time,
+                DATE_FORMAT(exit_at, '%H:%i') AS exit_time
+             FROM attendance
+             WHERE user_id = ? AND attendance_date BETWEEN ? AND ?`,
+            [userId, monthStart, statusEnd]
+        );
+        const [monthOdRows] = await pool.query(
+            'SELECT od_date, reason FROM attendance_od WHERE user_id = ? AND od_date BETWEEN ? AND ?',
+            [userId, monthStart, statusEnd]
+        );
+        const [monthHolidayRows] = await pool.query(
+            'SELECT holiday_date, title, holiday_type FROM attendance_holidays WHERE holiday_date BETWEEN ? AND ?',
+            [monthStart, statusEnd]
+        );
+        const [monthWorkRows] = await pool.query(
+            `SELECT id, work_date, work_text, created_at, updated_at
+             FROM individual_work_logs
+             WHERE individual_id = ? AND work_date BETWEEN ? AND ?
+             ORDER BY work_date DESC, id DESC`,
+            [student.id, monthStart, statusEnd]
         );
         const attendedDates = new Set(attendanceRows.map(row => toDateKey(row.attendance_date)));
         const odDates = new Set(odRows.map(row => toDateKey(row.od_date)));
@@ -3237,6 +3358,89 @@ app.get('/api/student/dashboard', requireStudent, async (req, res) => {
             todayLabel = student.current_day_work;
         }
 
+        const monthWorkingDateKeys = await getWorkingDateKeys(monthStart, statusEnd);
+        const monthWorkingDateSet = new Set(monthWorkingDateKeys);
+        const monthAttendanceByDate = new Map(monthAttendanceRows.map(row => [toDateKey(row.attendance_date), {
+            entry_at: row.entry_at,
+            exit_at: row.exit_at,
+            entry_time: row.entry_time,
+            exit_time: row.exit_time
+        }]));
+        const monthOdByDate = new Map(monthOdRows.map(row => [toDateKey(row.od_date), row.reason || 'On duty']));
+        const monthHolidayByDate = new Map(monthHolidayRows.map(row => [toDateKey(row.holiday_date), row]));
+        const monthWorkByDate = new Map(monthWorkRows.map(row => [toDateKey(row.work_date), row]));
+        const attendanceCalendar = calendarDates.map(dateKey => {
+            const date = new Date(`${dateKey}T00:00:00`);
+            const attendanceTimes = monthAttendanceByDate.get(dateKey) || {};
+            let status = 'off';
+            let label = 'Not counted';
+
+            if (dateKey > statusEnd || requestedMonth > todayKey.slice(0, 7)) {
+                status = 'upcoming';
+                label = 'Upcoming';
+            } else if (monthAttendanceByDate.has(dateKey)) {
+                status = 'present';
+                label = 'Present';
+            } else if (monthOdByDate.has(dateKey)) {
+                status = 'od';
+                label = monthOdByDate.get(dateKey);
+            } else if (monthWorkingDateSet.has(dateKey)) {
+                status = 'absent';
+                label = 'Absent';
+            }
+
+            return {
+                date: dateKey,
+                day: date.toLocaleDateString('en-US', { weekday: 'short' }),
+                status,
+                label,
+                entry_at: attendanceTimes.entry_at || null,
+                exit_at: attendanceTimes.exit_at || null,
+                entry_time: attendanceTimes.entry_time || null,
+                exit_time: attendanceTimes.exit_time || null
+            };
+        });
+        const workUpdateCalendar = calendarDates
+            .filter(dateKey => dateKey <= statusEnd && requestedMonth <= todayKey.slice(0, 7))
+            .map(dateKey => {
+                const date = new Date(`${dateKey}T00:00:00`);
+                const workLog = monthWorkByDate.get(dateKey);
+                const holiday = monthHolidayByDate.get(dateKey);
+                const isWeeklyOff = date.getDay() === 0 || isFirstOrThirdSaturday(date);
+                let status = 'not_updated';
+                let label = 'Not updated';
+                let workText = '';
+
+                if (holiday) {
+                    status = 'holiday';
+                    label = holiday.title || 'Holiday';
+                } else if (isWeeklyOff) {
+                    status = 'holiday';
+                    label = 'Holiday';
+                } else if (monthOdByDate.has(dateKey)) {
+                    status = 'od';
+                    label = monthOdByDate.get(dateKey) || 'OD';
+                } else if (monthWorkingDateSet.has(dateKey) && !monthAttendanceByDate.has(dateKey)) {
+                    status = 'absent';
+                    label = 'Absent';
+                } else if (workLog?.work_text) {
+                    status = 'updated';
+                    label = 'Updated';
+                    workText = workLog.work_text;
+                }
+
+                return {
+                    id: workLog?.id || `status-${dateKey}`,
+                    work_date: dateKey,
+                    work_text: workText,
+                    status,
+                    label,
+                    created_at: workLog?.created_at || null,
+                    updated_at: workLog?.updated_at || null
+                };
+            })
+            .sort((a, b) => String(b.work_date).localeCompare(String(a.work_date)));
+
         res.json({
             student: {
                 id: student.id,
@@ -3249,6 +3453,8 @@ app.get('/api/student/dashboard', requireStudent, async (req, res) => {
                 team_name: student.team_name,
                 team_id: student.team_id,
                 image: student.image,
+                pending_profile_image: pendingImageRows[0]?.requested_image || '',
+                pending_profile_image_requested_at: pendingImageRows[0]?.requested_at || null,
                 certificates: parseJsonArray(student.certificates),
                 research_work: parseJsonArray(student.research_work),
                 current_day_work: student.current_day_work || '',
@@ -3269,6 +3475,9 @@ app.get('/api/student/dashboard', requireStudent, async (req, res) => {
             achievements: linkedAchievements.slice(0, 12),
             projects: linkedProjects,
             team: teamRows[0] || null,
+            attendance_calendar: attendanceCalendar,
+            attendance_calendar_month: requestedMonth,
+            work_update_calendar: workUpdateCalendar,
             daily_work_settings: {
                 start_time: dailyWorkStartTime,
                 can_update: canUpdateDailyWork,
@@ -3445,16 +3654,23 @@ app.put('/api/student/profile', requireStudent, async (req, res) => {
     }
 
     try {
+        const [currentRows] = await pool.query(
+            'SELECT image FROM individuals WHERE id = ? AND user_id = ? LIMIT 1',
+            [req.student.individualId, req.student.userId]
+        );
+        if (currentRows.length === 0) return res.status(404).json({ error: 'Student profile not found' });
+        const currentImage = String(currentRows[0].image || '').trim();
+        const requestedImageChanged = image && image !== currentImage;
+
         const [result] = await pool.query(
             `UPDATE individuals
-             SET name = ?, department = ?, year_of_study = ?, studying_year = ?, image = ?, certificates = ?, research_work = ?
+             SET name = ?, department = ?, year_of_study = ?, studying_year = ?, certificates = ?, research_work = ?
              WHERE id = ? AND user_id = ?`,
             [
                 name,
                 department,
                 yearOfStudy,
                 studyingYear,
-                image,
                 JSON.stringify(certificates),
                 JSON.stringify(researchWork),
                 req.student.individualId,
@@ -3462,7 +3678,19 @@ app.put('/api/student/profile', requireStudent, async (req, res) => {
             ]
         );
         if (result.affectedRows === 0) return res.status(404).json({ error: 'Student profile not found' });
-        res.json({ message: 'Student profile updated successfully' });
+        if (requestedImageChanged) {
+            await pool.query(
+                `INSERT INTO profile_image_requests (individual_id, user_id, requested_image, status)
+                 VALUES (?, ?, ?, 'pending')`,
+                [req.student.individualId, req.student.userId, image]
+            );
+        }
+        res.json({
+            message: requestedImageChanged
+                ? 'Student profile updated. Profile image is waiting for admin approval.'
+                : 'Student profile updated successfully',
+            profile_image_pending: requestedImageChanged
+        });
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Server error updating student profile' });

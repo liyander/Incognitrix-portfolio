@@ -17,6 +17,59 @@ const linesToArray = (value) => value.split('\n').map(line => line.trim()).filte
 const arrayToLines = (items) => parseEditableArray(items).map(item => (
   typeof item === 'string' ? item : item.title || item.name || item.label || ''
 )).filter(Boolean).join('\n');
+const getCurrentMonthValue = () => {
+  const current = new Date();
+  return `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}`;
+};
+const MONTH_OPTIONS = [
+  ['01', 'January'],
+  ['02', 'February'],
+  ['03', 'March'],
+  ['04', 'April'],
+  ['05', 'May'],
+  ['06', 'June'],
+  ['07', 'July'],
+  ['08', 'August'],
+  ['09', 'September'],
+  ['10', 'October'],
+  ['11', 'November'],
+  ['12', 'December']
+];
+const getYearOptions = (selectedYear) => {
+  const currentYear = new Date().getFullYear();
+  const years = new Set(Array.from({ length: 12 }, (_, index) => currentYear - 8 + index));
+  const parsedSelectedYear = Number(selectedYear);
+  if (Number.isInteger(parsedSelectedYear)) years.add(parsedSelectedYear);
+  return [...years].sort((a, b) => b - a);
+};
+const formatCalendarMonth = (value) => {
+  if (!value) return 'CURRENT MONTH';
+  const date = new Date(`${value}-01T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }).toUpperCase();
+};
+const formatTimeForDisplay = (value) => {
+  if (!value) return '';
+  if (/^\d{2}:\d{2}/.test(String(value))) return String(value).slice(0, 5);
+  if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(String(value))) return String(value).slice(11, 16);
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value).slice(11, 16) || String(value);
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+};
+const getCalendarStatusClass = (status) => {
+  switch (status) {
+    case 'present':
+      return 'border-emerald-400/50 bg-emerald-500/20 text-emerald-200';
+    case 'absent':
+      return 'border-red-400/50 bg-red-500/20 text-red-200';
+    case 'od':
+      return 'border-yellow-300/60 bg-yellow-400/20 text-yellow-100';
+    case 'upcoming':
+      return 'border-outline/20 bg-surface-container text-outline';
+    default:
+      return 'border-outline/10 bg-background/60 text-outline/60';
+  }
+};
 
 function StudentDashboard({ onLogout }) {
   const [dashboard, setDashboard] = useState(null);
@@ -26,19 +79,21 @@ function StudentDashboard({ onLogout }) {
   const [newAchievementForm, setNewAchievementForm] = useState({ title: '', description: '', date: '', future_scope: '', reference_link: '' });
   const [teamForm, setTeamForm] = useState(null);
   const [dailyWorkText, setDailyWorkText] = useState('');
+  const [selectedAttendanceMonth, setSelectedAttendanceMonth] = useState(getCurrentMonthValue());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savingDailyWork, setSavingDailyWork] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
   const token = sessionStorage.getItem('studentToken') || '';
 
-  const fetchDashboard = async () => {
+  const fetchDashboardForMonth = async (month) => {
     setLoading(true);
     setError('');
     try {
-      const response = await fetch('/api/student/dashboard', {
+      const response = await fetch(`/api/student/dashboard?month=${encodeURIComponent(month)}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await response.json();
@@ -48,6 +103,7 @@ function StudentDashboard({ onLogout }) {
       }
       setDashboard(data);
       setDailyWorkText(data.student.current_day_work || '');
+      setSelectedAttendanceMonth(data.attendance_calendar_month || month);
       setProfileForm({
         name: data.student.name || '',
         department: data.student.department || '',
@@ -89,8 +145,15 @@ function StudentDashboard({ onLogout }) {
   };
 
   useEffect(() => {
-    fetchDashboard();
+    fetchDashboardForMonth(selectedAttendanceMonth);
   }, []);
+
+  const handleAttendanceMonthPartChange = (part, value) => {
+    const [year, month] = (selectedAttendanceMonth || getCurrentMonthValue()).split('-');
+    const nextMonth = part === 'year' ? `${value}-${month}` : `${year}-${value}`;
+    setSelectedAttendanceMonth(nextMonth);
+    fetchDashboardForMonth(nextMonth);
+  };
 
   const handleSave = async (e) => {
     e.preventDefault();
@@ -112,7 +175,7 @@ function StudentDashboard({ onLogout }) {
         return;
       }
       setMessage(data.message || 'Profile updated');
-      await fetchDashboard();
+      await fetchDashboardForMonth(selectedAttendanceMonth);
     } catch (err) {
       console.error(err);
       setError('Failed to update profile.');
@@ -131,6 +194,31 @@ function StudentDashboard({ onLogout }) {
   const arrayToText = (items) => (
     parseEditableArray(items).map(item => item.title || item.name || item).filter(Boolean).join('\n')
   );
+
+  const handleProfileImageUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingImage(true);
+    setMessage('');
+    setError('');
+    try {
+      const formData = new FormData();
+      formData.append('image', file);
+      const response = await fetch('/api/upload', { method: 'POST', body: formData });
+      const data = await response.json();
+      if (!response.ok || !data.imageUrl) {
+        setError(data.error || 'Failed to upload profile image');
+        return;
+      }
+      setProfileForm(prev => ({ ...prev, image: data.imageUrl }));
+      setMessage('Image uploaded. Save profile to send it for admin approval.');
+    } catch (err) {
+      console.error(err);
+      setError('Failed to upload profile image.');
+    } finally {
+      setUploadingImage(false);
+    }
+  };
 
   const saveProject = async (projectId) => {
     setSaving(true);
@@ -153,7 +241,7 @@ function StudentDashboard({ onLogout }) {
         return;
       }
       setMessage(data.message || 'Project updated');
-      await fetchDashboard();
+      await fetchDashboardForMonth(selectedAttendanceMonth);
     } catch (err) {
       console.error(err);
       setError('Failed to update project.');
@@ -179,7 +267,7 @@ function StudentDashboard({ onLogout }) {
         return;
       }
       setMessage(data.message || 'Achievement updated');
-      await fetchDashboard();
+      await fetchDashboardForMonth(selectedAttendanceMonth);
     } catch (err) {
       console.error(err);
       setError('Failed to update achievement.');
@@ -206,7 +294,7 @@ function StudentDashboard({ onLogout }) {
       }
       setMessage(data.message || 'Achievement added');
       setNewAchievementForm({ title: '', description: '', date: '', future_scope: '', reference_link: '' });
-      await fetchDashboard();
+      await fetchDashboardForMonth(selectedAttendanceMonth);
     } catch (err) {
       console.error(err);
       setError('Failed to add achievement.');
@@ -231,7 +319,7 @@ function StudentDashboard({ onLogout }) {
         return;
       }
       setMessage(data.message || 'Team updated');
-      await fetchDashboard();
+      await fetchDashboardForMonth(selectedAttendanceMonth);
     } catch (err) {
       console.error(err);
       setError('Failed to update team.');
@@ -257,7 +345,7 @@ function StudentDashboard({ onLogout }) {
         return;
       }
       setMessage(data.message || 'Daily work updated');
-      await fetchDashboard();
+      await fetchDashboardForMonth(selectedAttendanceMonth);
     } catch (err) {
       console.error(err);
       setError('Failed to update daily work.');
@@ -287,6 +375,11 @@ function StudentDashboard({ onLogout }) {
 
   const { student, stats, achievements, daily_work_settings: dailyWorkSettings = {} } = dashboard;
   const canUpdateDailyWork = Boolean(dailyWorkSettings.can_update);
+  const attendanceCalendar = Array.isArray(dashboard.attendance_calendar) ? dashboard.attendance_calendar : [];
+  const workUpdateCalendar = Array.isArray(dashboard.work_update_calendar) ? dashboard.work_update_calendar : [];
+  const firstCalendarDate = attendanceCalendar[0]?.date ? new Date(`${attendanceCalendar[0].date}T00:00:00`) : null;
+  const leadingCalendarBlanks = firstCalendarDate && !Number.isNaN(firstCalendarDate.getTime()) ? firstCalendarDate.getDay() : 0;
+  const [selectedYear, selectedMonth] = (selectedAttendanceMonth || getCurrentMonthValue()).split('-');
 
   return (
     <div className="min-h-screen p-6 md:p-10 animate-fade-slide">
@@ -369,6 +462,103 @@ function StudentDashboard({ onLogout }) {
           </div>
         </section>
 
+        <section className="bg-background border border-outline/20 rounded overflow-hidden">
+          <div className="bg-surface-bright px-5 py-4 border-b border-outline/20 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <span className="material-symbols-outlined text-[18px] text-primary">calendar_month</span>
+              <div>
+                <div className="font-mono text-xs text-on-surface-variant tracking-widest uppercase">ATTENDANCE_CALENDAR :: {formatCalendarMonth(dashboard.attendance_calendar_month)}</div>
+                <div className="font-mono text-[10px] text-outline uppercase mt-1">Read-only personal attendance ledger</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <select
+                value={selectedMonth}
+                onChange={(e) => handleAttendanceMonthPartChange('month', e.target.value)}
+                className="bg-background border border-outline/30 rounded p-2 text-on-surface focus:border-primary focus:outline-none font-mono text-xs"
+              >
+                {MONTH_OPTIONS.map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+              <select
+                value={selectedYear}
+                onChange={(e) => handleAttendanceMonthPartChange('year', e.target.value)}
+                className="bg-background border border-outline/30 rounded p-2 text-on-surface focus:border-primary focus:outline-none font-mono text-xs"
+              >
+                {getYearOptions(selectedYear).map(year => (
+                  <option key={year} value={year}>{year}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="p-5 grid grid-cols-1 xl:grid-cols-12 gap-6">
+            <div className="xl:col-span-8">
+              <div className="flex flex-wrap items-center gap-3 font-mono text-[10px] text-outline mb-4">
+                <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400"></span> PRESENT</span>
+                <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-400"></span> ABSENT</span>
+                <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-300"></span> OD</span>
+                <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-outline"></span> OFF / UPCOMING</span>
+              </div>
+              <div className="grid grid-cols-7 gap-2 mb-2 font-mono text-[10px] text-outline text-center uppercase">
+                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
+                  <div key={day}>{day}</div>
+                ))}
+              </div>
+              {attendanceCalendar.length === 0 ? (
+                <div className="border border-outline/10 rounded p-6 text-center font-mono text-xs text-outline">No attendance calendar data available.</div>
+              ) : (
+                <div className="grid grid-cols-7 gap-2">
+                  {Array.from({ length: leadingCalendarBlanks }).map((_, idx) => (
+                    <div key={`blank-${idx}`} className="aspect-square rounded border border-transparent"></div>
+                  ))}
+                  {attendanceCalendar.map(day => (
+                    <div
+                      key={day.date}
+                      title={`${day.date} - ${day.label}${day.entry_time || day.entry_at ? ` | In: ${formatTimeForDisplay(day.entry_time || day.entry_at)}` : ''}${day.exit_time || day.exit_at ? ` | Exit: ${formatTimeForDisplay(day.exit_time || day.exit_at)}` : ''}`}
+                      className={`min-h-24 rounded border p-2 flex flex-col justify-between text-left ${getCalendarStatusClass(day.status)}`}
+                    >
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="font-mono text-sm font-bold">{String(Number(day.date.slice(8, 10)))}</span>
+                        <span className="font-mono text-[9px] uppercase opacity-80">{day.day}</span>
+                      </div>
+                      <div className="font-mono text-[9px] uppercase">
+                        <div className="truncate">{day.status === 'present' ? 'Present' : day.status === 'absent' ? 'Absent' : day.status === 'od' ? 'OD' : day.status === 'upcoming' ? 'Next' : 'Off'}</div>
+                        {day.status === 'present' && (
+                          <div className="mt-1 space-y-0.5 leading-tight text-[8px]">
+                            <div className="truncate">IN {day.entry_time || day.entry_at ? formatTimeForDisplay(day.entry_time || day.entry_at) : '-'}</div>
+                            <div className="truncate">OUT {day.exit_time || day.exit_at ? formatTimeForDisplay(day.exit_time || day.exit_at) : '-'}</div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="xl:col-span-4 bg-surface-container-low border border-outline/20 rounded p-4 max-h-[620px] overflow-y-auto">
+              <div className="font-mono text-xs text-primary uppercase tracking-widest mb-3">Work Update Timeline</div>
+              {workUpdateCalendar.length === 0 ? (
+                <div className="border border-outline/10 rounded p-4 font-mono text-xs text-outline">No work update data available for this month.</div>
+              ) : (
+                <div className="space-y-3">
+                  {workUpdateCalendar.map(log => (
+                    <div key={log.id || `${log.work_date}-${log.status}`} className="border-l-2 border-primary/30 pl-3 pb-3">
+                      <div className="flex flex-wrap items-center gap-2 mb-1">
+                        <span className="font-mono text-xs text-primary">{formatDate(log.work_date)}</span>
+                        <span className={`font-mono text-[9px] uppercase border rounded px-2 py-0.5 ${getCalendarStatusClass(log.status)}`}>{log.label}</span>
+                      </div>
+                      <p className="font-mono text-xs text-on-surface-variant whitespace-pre-wrap">{log.work_text || log.label}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
           <section className="xl:col-span-5 bg-background border border-outline/20 rounded p-5">
             <h2 className="font-headline text-xl font-bold text-on-surface mb-4">Student Details</h2>
@@ -398,8 +588,22 @@ function StudentDashboard({ onLogout }) {
                 </label>
               </div>
               <label className="block">
-                <span className="text-outline uppercase">Image URL</span>
-                <input value={profileForm.image} onChange={(e) => setProfileForm({ ...profileForm, image: e.target.value })} className="mt-1 w-full bg-surface-container-low border border-outline/30 rounded p-2 text-on-surface" />
+                <span className="text-outline uppercase">Profile Image</span>
+                <div className="mt-2 grid grid-cols-[72px_1fr] gap-3 items-start">
+                  <div className="w-16 h-16 rounded overflow-hidden border border-outline/30 bg-surface-container-low flex items-center justify-center">
+                    {profileForm.image ? <img src={profileForm.image} alt="Profile preview" className="w-full h-full object-cover" /> : <span className="material-symbols-outlined text-outline">person</span>}
+                  </div>
+                  <div className="space-y-2">
+                    <input type="file" accept="image/*" onChange={handleProfileImageUpload} className="w-full bg-surface-container-low border border-outline/30 rounded p-2 text-on-surface" />
+                    <input value={profileForm.image} onChange={(e) => setProfileForm({ ...profileForm, image: e.target.value })} className="w-full bg-surface-container-low border border-outline/30 rounded p-2 text-on-surface" placeholder="Or paste image URL" />
+                    <p className="text-outline text-[10px] uppercase">
+                      {uploadingImage ? 'Uploading image...' : 'New images become visible after admin approval.'}
+                    </p>
+                    {student.pending_profile_image && (
+                      <p className="text-secondary text-[10px] uppercase">Pending image approval already submitted.</p>
+                    )}
+                  </div>
+                </div>
               </label>
               <label className="block">
                 <span className="text-outline uppercase">Certificates</span>

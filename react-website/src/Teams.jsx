@@ -181,12 +181,17 @@ function Teams({ useDatabase, onSelectProject, onSelectIndividual }) {
                 <div className="text-sm text-outline font-mono">No assigned operatives.</div>
               ) : (
                 teamMembers.map(member => (
-                  <div 
-                    key={member.id} 
+                  <div
+                    key={member.id}
                     onClick={() => onSelectIndividual?.(member.id)}
-                    className="flex justify-between items-center text-sm border-b border-outline/10 pb-2 last:border-0 last:pb-0 cursor-pointer hover:bg-surface-container transition-colors group p-2 -mx-2 rounded"
+                    className="flex justify-between items-center gap-3 text-sm border-b border-outline/10 pb-2 last:border-0 last:pb-0 cursor-pointer hover:bg-surface-container transition-colors group p-2 -mx-2 rounded"
                   >
-                    <span className="text-on-surface font-semibold text-xs truncate max-w-[50%] group-hover:text-primary transition-colors">{member.name}</span>
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-9 h-9 rounded overflow-hidden border border-outline/20 bg-surface-container flex items-center justify-center shrink-0">
+                        {member.image ? <img src={member.image} alt={member.name} className="w-full h-full object-cover" /> : <span className="material-symbols-outlined text-outline text-base">person</span>}
+                      </div>
+                      <span className="text-on-surface font-semibold text-xs truncate group-hover:text-primary transition-colors">{member.name}</span>
+                    </div>
                     <div className="text-right">
                       <div className="font-mono text-[10px] text-primary tracking-wider uppercase group-hover:text-primary-container transition-colors">{member.role || 'Operative'}</div>
                       <div className="font-mono text-[9px] text-outline uppercase">{member.department || 'N/A'}</div>
